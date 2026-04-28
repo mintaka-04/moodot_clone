@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 load_dotenv('.env.local')
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),  # DEBUG | INFO | WARNING | ERROR | CRITICAL
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
