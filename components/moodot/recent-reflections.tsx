@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { getRecentMemories, type MemoryRow } from "@/lib/services/memory"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
+import logger from "@/lib/logger"
 
 const EMOTION_COLOR_MAP: Record<number, string> = {
   1: "#FFE8B8",
@@ -81,7 +82,8 @@ export function RecentReflections() {
         const data = await getRecentMemories(2)
         if (!mounted) return
         setMemories(data)
-      } catch {
+      } catch (e) {
+        logger.error("[recent-reflections] load error:", e)
         // 기존 동작 유지: 에러 시 빈 목록으로 처리
       } finally {
         if (mounted) setIsLoading(false)

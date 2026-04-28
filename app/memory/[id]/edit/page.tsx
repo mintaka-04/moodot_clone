@@ -11,6 +11,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { compressImage } from "@/lib/image-compression"
 import { uploadImage, getSignedUrl } from "@/lib/storage/image"
 import { getMemoryById, updateMemory, deleteMemory } from "@/lib/services/memory"
+import logger from "@/lib/logger"
 import { BottomNavigation } from "@/components/moodot/bottom-navigation"
 
 // ─── Leaflet loader (모듈 수준 싱글턴) ──────────────────────────────────────
@@ -136,7 +137,8 @@ export default function EditMemoryPage() {
         setLocationLat(data.location_lat ?? null)
         setLocationLng(data.location_lng ?? null)
         setPlaceName(data.place_name ?? "")
-      } catch {
+      } catch (e) {
+        logger.error("[memory/edit] load error:", e)
         alert("기존 기록을 불러오지 못했습니다.")
         router.back()
       } finally {
@@ -234,6 +236,7 @@ export default function EditMemoryPage() {
       setImageUrl(path)
       setUploadStatus("success")
     } catch (e) {
+      logger.error("[memory/edit] photo upload error:", e)
       setUploadStatus("failed")
       alert(`사진 업로드 실패: ${e instanceof Error ? e.message : ""}`)
     }
@@ -256,6 +259,7 @@ export default function EditMemoryPage() {
       await deleteMemory(memoryId)
       router.replace("/records")
     } catch (e) {
+      logger.error("[memory/edit] delete error:", e)
       alert(`삭제 실패: ${e instanceof Error ? e.message : ""}`)
     }
   }
@@ -280,6 +284,7 @@ export default function EditMemoryPage() {
       })
       router.push(`/memory/${memoryId}`)
     } catch (e) {
+      logger.error("[memory/edit] save error:", e)
       alert(`저장 실패: ${e instanceof Error ? e.message : ""}`)
     } finally {
       setIsSaving(false)

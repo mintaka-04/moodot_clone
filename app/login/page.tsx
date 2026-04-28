@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { subscribeToAuth, signInWithGoogle } from "@/lib/supabase/auth"
 import type { User } from "@supabase/supabase-js"
+import logger from "@/lib/logger"
 
 export default function LoginPage() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -112,7 +113,8 @@ export default function LoginPage() {
                     try {
                       setIsLoading(true)
                       await signInWithGoogle()
-                    } catch {
+                    } catch (e) {
+                      logger.error("[login] signInWithGoogle error:", e)
                       alert("로그인에 실패했습니다. 잠시 후 다시 시도해주세요.")
                       setIsLoading(false)
                     }

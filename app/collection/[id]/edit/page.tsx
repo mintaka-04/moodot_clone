@@ -14,6 +14,7 @@ import {
   type CollectionFormInput,
 } from "@/lib/services/collection"
 import type { MemoryRow } from "@/lib/services/memory"
+import logger from "@/lib/logger"
 
 export default function EditCollectionPage() {
   const router = useRouter()
@@ -43,6 +44,7 @@ export default function EditCollectionPage() {
       })
       .catch((e) => {
         if (!mounted) return
+        logger.error("[collection/edit] load error:", e)
         if (e?.code === "PGRST116" || e?.message?.includes("not found")) {
           router.replace("/collection")
           return

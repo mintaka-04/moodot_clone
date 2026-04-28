@@ -19,6 +19,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { compressImage } from "@/lib/image-compression"
 import { uploadImage } from "@/lib/storage/image"
 import { createMemory } from "@/lib/services/memory"
+import logger from "@/lib/logger"
 import { BottomNavigation } from "@/components/moodot/bottom-navigation"
 
 type MoodType = "good" | "bad" | "sad" | "calm"
@@ -289,6 +290,7 @@ export default function CreatePage() {
       setImageUrl(path)
       setUploadStatus("success")
     } catch (error) {
+      logger.error("[memory-create] photo upload error:", error)
       setUploadStatus("failed")
       const message = error instanceof Error ? error.message : "사진 업로드에 실패했습니다."
       alert(`사진 업로드 실패: ${message}`)
@@ -336,6 +338,7 @@ export default function CreatePage() {
       })
       router.replace(`/memory/${newId}`)
     } catch (error) {
+      logger.error("[memory-create] save error:", error)
       const message = error instanceof Error ? error.message : "저장 중 오류가 발생했습니다."
       alert(`저장 실패: ${message}`)
     } finally {

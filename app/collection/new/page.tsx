@@ -11,6 +11,7 @@ import {
   type CollectionFormInput,
 } from "@/lib/services/collection"
 import type { MemoryRow } from "@/lib/services/memory"
+import logger from "@/lib/logger"
 
 export default function NewCollectionPage() {
   const router = useRouter()
@@ -23,6 +24,7 @@ export default function NewCollectionPage() {
     getAvailableMemories()
       .then((data) => { if (mounted) setAvailableMemories(data) })
       .catch((e) => {
+        logger.error("[collection/new] load error:", e)
         if (mounted)
           setLoadError(
             e instanceof Error ? e.message : "기록을 불러오지 못했습니다."

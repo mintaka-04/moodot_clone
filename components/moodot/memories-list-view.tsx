@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Search, User, Users, Plus } from "lucide-react"
 import { getMemories, type MemoryRow } from "@/lib/services/memory"
+import logger from "@/lib/logger"
 import { MemoriesExportButton } from "@/components/moodot/memories-export-button"
 
 const EMOTION_COLOR_MAP: Record<number, string> = {
@@ -55,6 +56,7 @@ export function MemoriesListView() {
         setHasMore(data.length === PAGE_SIZE)
       } catch (error) {
         if (!mounted) return
+        logger.error("[memories-list] load error:", error)
         const message = error instanceof Error ? error.message : "메모리를 불러오지 못했습니다."
         setErrorMessage(`메모리 조회 실패: ${message}`)
       } finally {
@@ -77,6 +79,7 @@ export function MemoriesListView() {
       setOffset((prev) => prev + PAGE_SIZE)
       setHasMore(data.length === PAGE_SIZE)
     } catch (error) {
+      logger.error("[memories-list] load more error:", error)
       const message = error instanceof Error ? error.message : "메모리를 불러오지 못했습니다."
       setErrorMessage(`메모리 조회 실패: ${message}`)
     } finally {

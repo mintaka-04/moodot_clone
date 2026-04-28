@@ -1,10 +1,11 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
+import logger from "@/lib/logger"
 
 export async function signInAnonymously() {
   const supabase = getSupabaseBrowserClient()
   const { error } = await supabase.auth.signInAnonymously()
-  if (error) console.error("[auth] signInAnonymously error:", error)
+  if (error) logger.error("[auth] signInAnonymously error:", error)
 }
 
 export async function signInWithGoogle() {
@@ -13,7 +14,7 @@ export async function signInWithGoogle() {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  console.debug(
+  logger.debug(
     "[auth] signInWithGoogle | user.id:", user?.id ?? "null",
     "| is_anonymous:", user?.is_anonymous ?? "-"
   )
@@ -21,7 +22,7 @@ export async function signInWithGoogle() {
   // 익명 사용자인 경우 uid 저장 → 로그인 후 데이터 병합에 사용
   if (user?.is_anonymous) {
     localStorage.setItem("pre_auth_uid", user.id)
-    console.debug("[auth] pre_auth_uid 저장:", user.id)
+    logger.debug("[auth] pre_auth_uid 저장:", user.id)
   }
 
   const { error } = await supabase.auth.signInWithOAuth({
@@ -35,7 +36,7 @@ export async function signInWithGoogle() {
   })
 
   if (error) {
-    console.error("[auth] signInWithGoogle error:", error)
+    logger.error("[auth] signInWithGoogle error:", error)
     localStorage.removeItem("pre_auth_uid")
     throw error
   }
@@ -45,7 +46,7 @@ export async function signOut() {
   const supabase = getSupabaseBrowserClient()
   const { error } = await supabase.auth.signOut()
   if (error) {
-    console.error("[auth] signOut error:", error)
+    logger.error("[auth] signOut error:", error)
     throw error
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import logger from "@/lib/logger"
 import type { UpdateMemoryInput } from "@/lib/services/memory"
 import {
   MEMORY_SELECT_COLUMNS,
@@ -36,7 +37,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const t0 = Date.now()
-  console.log("[perf][memories/detail] start")
+  logger.info("[perf][memories/detail] start")
 
   try {
     const { id: rawId } = await params
@@ -48,13 +49,13 @@ export async function GET(
 
     const t1 = Date.now()
     const supabase = await getSupabaseServerClient()
-    console.log(`[perf][memories/detail] supabase client: ${Date.now() - t1}ms`)
+    logger.info(`[perf][memories/detail] supabase client: ${Date.now() - t1}ms`)
 
     const t2 = Date.now()
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    console.log(`[perf][memories/detail] auth.getUser: ${Date.now() - t2}ms`)
+    logger.info(`[perf][memories/detail] auth.getUser: ${Date.now() - t2}ms`)
 
     if (!user) {
       return jsonError("인증이 필요합니다.", 401)
@@ -67,7 +68,7 @@ export async function GET(
       .eq("id", memoryId)
       .eq("user_id", user.id)
       .single()
-    console.log(`[perf][memories/detail] db query: ${Date.now() - t3}ms`)
+    logger.info(`[perf][memories/detail] db query: ${Date.now() - t3}ms`)
 
     if (error) {
       if (error.code === "PGRST116") {
@@ -78,13 +79,14 @@ export async function GET(
 
     const t4 = Date.now()
     const row = toPublicMemoryRow(data as MemoryDbRow)
-    console.log(`[perf][memories/detail] decrypt: ${Date.now() - t4}ms`)
+    logger.info(`[perf][memories/detail] decrypt: ${Date.now() - t4}ms`)
 
-    console.log(`[perf][memories/detail] total: ${Date.now() - t0}ms`)
+    logger.info(`[perf][memories/detail] total: ${Date.now() - t0}ms`)
     return NextResponse.json(row, {
       headers: { "Cache-Control": "private, max-age=30" },
     })
   } catch (error) {
+    logger.error("[memories/detail] GET error:", error)
     const message =
       error instanceof Error ? error.message : "메모리를 불러오지 못했습니다."
     return jsonError(message, 500)
@@ -123,6 +125,7 @@ export async function PATCH(
 
     return new Response(null, { status: 204 })
   } catch (error) {
+    logger.error("[memories/detail] PATCH error:", error)
     const message =
       error instanceof Error ? error.message : "메모리 수정에 실패했습니다."
     return jsonError(message, 500)

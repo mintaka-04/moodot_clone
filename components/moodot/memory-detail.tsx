@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import type { LeafletMap, LeafletMarker } from "@/types/leaflet"
 import { Smile, Frown, CloudRain, Leaf, User, Users, MapPin, Pencil } from "lucide-react"
 import { getMemoryById, type MemoryRow } from "@/lib/services/memory"
+import logger from "@/lib/logger"
 import { SignedImage } from "@/components/moodot/signed-image"
 import { MemoryExportDrawer } from "@/components/moodot/memory-export-drawer"
 
@@ -133,6 +134,7 @@ export function MemoryDetail({ id }: { id: number }) {
         setMemory(data)
       } catch (e) {
         if (!mounted) return
+        logger.error("[memory-detail] load error:", e)
         setError(e instanceof Error ? e.message : "불러오지 못했습니다.")
       } finally {
         if (mounted) setIsLoading(false)

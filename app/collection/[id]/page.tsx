@@ -16,6 +16,7 @@ import {
   type MemoryInCollection,
 } from "@/lib/services/collection"
 import { SignedImage } from "@/components/moodot/signed-image"
+import logger from "@/lib/logger"
 
 const EMOTION_COLOR_MAP: Record<number, string> = {
   1: "#FFE8B8",
@@ -145,6 +146,7 @@ export default function CollectionDetailPage() {
       .then((data) => { if (mounted) setCollection(data) })
       .catch((e) => {
         if (!mounted) return
+        logger.error("[collection/detail] load error:", e)
         if (e?.code === "PGRST116" || e?.message?.includes("not found")) {
           router.replace("/collection")
           return

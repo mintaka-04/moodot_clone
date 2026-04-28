@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import logger from "@/lib/logger"
 import {
   buildMemoryTextMap,
   type MemoryTextDbRow,
@@ -53,6 +54,7 @@ export async function POST(request: Request) {
       texts: buildMemoryTextMap((data ?? []) as MemoryTextDbRow[]),
     })
   } catch (error) {
+    logger.error("[memories/texts] POST error:", error)
     const message =
       error instanceof Error ? error.message : "메모리 본문을 불러오지 못했습니다."
     return jsonError(message, 500)

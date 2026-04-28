@@ -16,6 +16,7 @@ import { MemoryPicker } from "@/components/moodot/memory-picker"
 import { SignedImage } from "@/components/moodot/signed-image"
 import type { CollectionFormInput } from "@/lib/services/collection"
 import type { MemoryRow } from "@/lib/services/memory"
+import logger from "@/lib/logger"
 
 type Props = {
   /** 수정 모드일 때 기존 컬렉션 id (UUID) */
@@ -151,6 +152,7 @@ export function CollectionForm({
         memory_ids: selectedIds,
       })
     } catch (e) {
+      logger.error("[collection-form] save error:", e)
       setErrorMsg(e instanceof Error ? e.message : "저장에 실패했습니다.")
       setIsSaving(false)
     }
@@ -163,6 +165,7 @@ export function CollectionForm({
     try {
       await onDelete()
     } catch (e) {
+      logger.error("[collection-form] delete error:", e)
       setErrorMsg(e instanceof Error ? e.message : "삭제에 실패했습니다.")
       setIsDeleting(false)
       setShowDeleteConfirm(false)

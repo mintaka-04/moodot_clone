@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { subscribeToAuth, signOut } from "@/lib/supabase/auth"
 import type { User } from "@supabase/supabase-js"
+import logger from "@/lib/logger"
 
 export default function ProfilePage() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -133,7 +134,8 @@ export default function ProfilePage() {
                     await signOut()
                     router.push("/login")
                     router.refresh()
-                  } catch {
+                  } catch (e) {
+                    logger.error("[profile] signOut error:", e)
                     setSignOutError(true)
                     setIsSigningOut(false)
                   }

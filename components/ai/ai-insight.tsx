@@ -12,6 +12,7 @@ import {
 } from "@/lib/services/intervention"
 import { getRecentMemories } from "@/lib/services/memory"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
+import logger from "@/lib/logger"
 
 type BgScheme = { gradient: string; glow: string; border: string }
 
@@ -120,7 +121,8 @@ export function AIInsight() {
       .then((memories) => {
         setLatestEmotionId(memories[0]?.emotion_id ?? null)
       })
-      .catch(() => {
+      .catch((e) => {
+        logger.error("[ai-insight] load error:", e)
         setLatestEmotionId(null)
       })
       .finally(() => {

@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextRequest, NextResponse } from "next/server"
 
+import logger from "@/lib/logger"
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
@@ -31,9 +33,9 @@ export async function GET(request: NextRequest) {
 
     try {
       await supabase.auth.exchangeCodeForSession(code)
-      console.log("[auth/callback] exchangeCodeForSession 완료")
+      logger.info("[auth/callback] exchangeCodeForSession 완료")
     } catch (error) {
-      console.error("[auth/callback] exchangeCodeForSession error:", error)
+      logger.error("[auth/callback] exchangeCodeForSession error:", error)
     }
   }
 
