@@ -9,18 +9,28 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd /home/ubuntu/moodot_clone
-            git pull origin develop
-            source service/venv/bin/activate
-            pip install -r service/requirements.txt
-            sudo systemctl restart moodot-worker
-            sudo systemctl status moodot-worker
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: Deploy to EC2 via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "cd /home/ubuntu/moodot_clone",
+              "git pull origin develop",
+              "source service/venv/bin/activate",
+              "pip install -r service/requirements.txt",
+              "sudo systemctl restart moodot-worker",
+              "sudo systemctl status moodot-worker"
+            ]' \
+            --output text
