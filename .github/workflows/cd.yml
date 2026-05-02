@@ -1,0 +1,26 @@
+name: Deploy Worker to EC2
+
+on:
+  push:
+    branches: ["develop"]
+    paths:
+      - "service/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/moodot_clone
+            git pull origin develop
+            source service/venv/bin/activate
+            pip install -r service/requirements.txt
+            sudo systemctl restart moodot-worker
+            sudo systemctl status moodot-worker
