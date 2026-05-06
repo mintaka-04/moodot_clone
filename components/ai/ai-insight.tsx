@@ -168,6 +168,7 @@ export function AIInsight() {
     if (!intervention) return
     if (showMessage) {
       setShowMessage(false)
+      setAiState("idle")
       setTimeout(() => {
         setIntervention(null)
         setFeedbackGiven(false)
