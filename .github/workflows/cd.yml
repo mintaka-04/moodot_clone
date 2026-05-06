@@ -22,15 +22,45 @@ jobs:
 
       - name: Deploy to EC2 via SSM
         run: |
-          aws ssm send-command \
+          COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "cd /home/ubuntu/moodot_clone",
-              "git pull origin develop",
-              "source service/venv/bin/activate",
-              "pip install -r service/requirements.txt",
-              "sudo systemctl restart moodot-worker",
-              "sudo systemctl status moodot-worker"
-            ]' \
-            --output text
+            --parameters 'commands=["cd /home/ubuntu/moodot_clone && git pull origin develop && service/venv/bin/pip install -r service/requirements.txt -q && sudo systemctl restart moodot-worker && sudo systemctl status moodot-worker --no-pager"]' \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}"
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --query "Status" \
+            --output text)
+
+          OUTPUT=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --query "StandardOutputContent" \
+            --output text)
+
+          ERROR=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --query "StandardErrorContent" \
+            --output text)
+
+          echo "=== Status: $STATUS ==="
+          echo "=== Output ==="
+          echo "$OUTPUT"
+          if [ -n "$ERROR" ]; then
+            echo "=== Error ==="
+            echo "$ERROR"
+          fi
+
+          if [ "$STATUS" != "Success" ]; then
+            exit 1
+          fi
