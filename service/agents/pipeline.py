@@ -107,12 +107,11 @@ class Pipeline:
 
     async def process_feedback(self, payload: Dict[str, Any]) -> None:
         """피드백 INSERT 이벤트 처리 — feedback_score 갱신"""
-        logger.info(f"📨 process_feedback 호출됨: {payload}")
         try:
-            record = payload.get("record", {})
+            data = payload.get("data", payload)
+            record = data.get("record") or data.get("new") or {}
             intervention_id = record.get("intervention_id")
             if not intervention_id:
-                logger.warning(f"⚠️ intervention_id 없음. record={record}")
                 return
 
             score = await calculate_score(self.supabase, intervention_id)
