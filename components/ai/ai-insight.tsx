@@ -183,12 +183,16 @@ export function AIInsight() {
   const handleFeedback = async (e: React.MouseEvent, score: 2 | -2) => {
     e.stopPropagation()
     if (!intervention) return
-    await submitFeedback(intervention.id, score)
-    await markInterventionAsInteracted(intervention.id)
     const type = intervention.message_type ?? "checkin"
     const responses = FEEDBACK_RESPONSES[type] ?? FEEDBACK_RESPONSES.checkin
     setFeedbackResponse(score === 2 ? responses.positive : responses.negative)
     setFeedbackGiven(true)
+    try {
+      await submitFeedback(intervention.id, score)
+      await markInterventionAsInteracted(intervention.id)
+    } catch (err) {
+      logger.error("[ai-insight] feedback save error:", err)
+    }
   }
 
   return (
