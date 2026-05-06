@@ -1,4 +1,4 @@
-# main.py — AI worker entry point
+# main.py
 import os
 import asyncio
 import logging
