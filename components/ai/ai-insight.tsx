@@ -180,11 +180,11 @@ export function AIInsight() {
     }
   }
 
-  const handleFeedback = (e: React.MouseEvent, score: 2 | -2) => {
+  const handleFeedback = async (e: React.MouseEvent, score: 2 | -2) => {
     e.stopPropagation()
     if (!intervention) return
-    submitFeedback(intervention.id, score)
-    markInterventionAsInteracted(intervention.id)
+    await submitFeedback(intervention.id, score)
+    await markInterventionAsInteracted(intervention.id)
     const type = intervention.message_type ?? "checkin"
     const responses = FEEDBACK_RESPONSES[type] ?? FEEDBACK_RESPONSES.checkin
     setFeedbackResponse(score === 2 ? responses.positive : responses.negative)
