@@ -3,7 +3,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 // ---------- Types ----------
 
 export type Intervention = {
-  id: number
+  id: string
   reason: string
   message: string
   status: "pending" | "shown" | "interacted" | "dismissed"
@@ -32,7 +32,7 @@ export async function getLatestPendingIntervention(): Promise<Intervention | nul
   return data[0] as Intervention
 }
 
-export async function markInterventionAsShown(id: number): Promise<void> {
+export async function markInterventionAsShown(id: string): Promise<void> {
   const supabase = getSupabaseBrowserClient()
   const { error } = await supabase
     .from("interventions")
@@ -42,7 +42,7 @@ export async function markInterventionAsShown(id: number): Promise<void> {
   if (error) throw error
 }
 
-export async function markInterventionAsInteracted(id: number): Promise<void> {
+export async function markInterventionAsInteracted(id: string): Promise<void> {
   const supabase = getSupabaseBrowserClient()
   const { error } = await supabase
     .from("interventions")
@@ -53,7 +53,7 @@ export async function markInterventionAsInteracted(id: number): Promise<void> {
 }
 
 export async function submitFeedback(
-  interventionId: number,
+  interventionId: string,
   explicitScore: 2 | -2
 ): Promise<void> {
   const supabase = getSupabaseBrowserClient()
