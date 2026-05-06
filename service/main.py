@@ -97,6 +97,52 @@ async def health_server() -> None:
         await server.serve_forever()
 
 
+async def subscribe_channels(supabase, pipeline: Pipeline) -> None:
+    emotion_channel = supabase.channel('emotion_events')
+    emotion_channel.on_postgres_changes(
+        event='INSERT',
+        schema='public',
+        table='memories',
+        callback=lambda payload: asyncio.get_running_loop().create_task(
+            pipeline.process_emotion(payload)
+        )
+    )
+    await emotion_channel.subscribe()
+
+    feedback_channel = supabase.channel('feedback_events')
+    feedback_channel.on_postgres_changes(
+        event='INSERT',
+        schema='public',
+        table='intervention_feedback',
+        callback=lambda payload: asyncio.get_running_loop().create_task(
+            pipeline.process_feedback(payload)
+        )
+    )
+    await feedback_channel.subscribe()
+    logger.info("✅ Realtime 구독 시작!")
+
+
+async def realtime_watchdog(supabase, pipeline: Pipeline) -> None:
+    """60초마다 WebSocket 연결 상태 확인 후 끊겼으면 재구독"""
+    await asyncio.sleep(60)
+    while True:
+        await asyncio.sleep(60)
+        if not supabase.realtime.is_connected:
+            logger.warning("⚠️ Realtime 연결 끊김 감지. 재연결 시도...")
+            for attempt in range(3):
+                try:
+                    await supabase.realtime.remove_all_channels()
+                    await subscribe_channels(supabase, pipeline)
+                    logger.info("✅ Realtime 재연결 성공")
+                    break
+                except Exception as e:
+                    logger.error(f"재연결 실패 (시도 {attempt + 1}/3): {e}")
+                    if attempt < 2:
+                        await asyncio.sleep(5)
+            else:
+                logger.error("❌ Realtime 재연결 최종 실패. 워커를 재시작하세요.")
+
+
 async def main() -> None:
     logger.info("🚀 AI 에이전트 워커 시작...")
     logger.info(f"📡 Supabase URL: {os.getenv('SUPABASE_URL')}")
@@ -115,37 +161,14 @@ async def main() -> None:
 
     pipeline = Pipeline(supabase, intervention_repo, rule_engine, message_generator)
 
-    max_retries = 3
-    for attempt in range(max_retries):
+    for attempt in range(3):
         try:
-            emotion_channel = supabase.channel('emotion_events')
-            emotion_channel.on_postgres_changes(
-                event='INSERT',
-                schema='public',
-                table='memories',
-                callback=lambda payload: asyncio.get_running_loop().create_task(
-                    pipeline.process_emotion(payload)
-                )
-            )
-            await emotion_channel.subscribe()
-
-            feedback_channel = supabase.channel('feedback_events')
-            feedback_channel.on_postgres_changes(
-                event='INSERT',
-                schema='public',
-                table='intervention_feedback',
-                callback=lambda payload: asyncio.get_running_loop().create_task(
-                    pipeline.process_feedback(payload)
-                )
-            )
-            await feedback_channel.subscribe()
-
-            logger.info("✅ Realtime 구독 시작!")
+            await subscribe_channels(supabase, pipeline)
             logger.info("👂 이벤트 대기 중... (Ctrl+C로 종료)")
             break
         except Exception as e:
-            logger.error(f"구독 실패 (시도 {attempt + 1}/{max_retries}): {e}")
-            if attempt == max_retries - 1:
+            logger.error(f"구독 실패 (시도 {attempt + 1}/3): {e}")
+            if attempt == 2:
                 raise
             await asyncio.sleep(5)
 
@@ -153,6 +176,7 @@ async def main() -> None:
         health_server(),
         initial_check(supabase, pipeline),
         periodic_check(supabase, pipeline),
+        realtime_watchdog(supabase, pipeline),
     )
 
 
