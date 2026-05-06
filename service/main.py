@@ -108,6 +108,7 @@ async def subscribe_channels(supabase, pipeline: Pipeline) -> None:
         )
     )
     await emotion_channel.subscribe()
+    logger.info(f"📡 emotion_channel state: {emotion_channel.state}")
 
     feedback_channel = supabase.channel('feedback_events')
     feedback_channel.on_postgres_changes(
@@ -119,6 +120,7 @@ async def subscribe_channels(supabase, pipeline: Pipeline) -> None:
         )
     )
     await feedback_channel.subscribe()
+    logger.info(f"📡 feedback_channel state: {feedback_channel.state}")
     logger.info("✅ Realtime 구독 시작!")
 
 
