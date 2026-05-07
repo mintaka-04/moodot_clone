@@ -12,7 +12,7 @@ export function AuthInit() {
     getCurrentUser().then(async (user) => {
       const currentUid = user?.id ?? null
 
-      logger.info("[AuthInit] getCurrentUser:", currentUid ?? "null", "| is_anonymous:", user?.is_anonymous ?? "-")
+      logger.debug("[AuthInit] getCurrentUser:", currentUid ?? "null", "| is_anonymous:", user?.is_anonymous ?? "-")
       logger.debug("[merge] pre_auth_uid:", preAuthUid ?? "null", "| current_uid:", currentUid ?? "null")
 
       if (!user) {
@@ -22,10 +22,10 @@ export function AuthInit() {
           logger.warn("[AuthInit] pre_auth_uid 있음 + 세션 없음 → signInAnonymously 스킵 (OAuth exchange 실패 추정)")
           return
         }
-        logger.info("[AuthInit] 세션 없음 → signInAnonymously 호출")
+        logger.debug("[AuthInit] 세션 없음 → signInAnonymously 호출")
         await signInAnonymously()
         const after = await getCurrentUser()
-        logger.info("[AuthInit] 익명 로그인 완료:", after?.id ?? "실패(null)")
+        logger.debug("[AuthInit] 익명 로그인 완료:", after?.id ?? "실패(null)")
         return
       }
 
