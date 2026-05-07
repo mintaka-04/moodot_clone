@@ -1,9 +1,8 @@
 "use client"
 
 import Image from "next/image"
-import { Bell, UserRound } from "lucide-react"
+import { UserRound } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { subscribeToAuth } from "@/lib/supabase/auth"
@@ -70,25 +69,25 @@ export function TopAppBar() {
         {/* App Logo */}
         <div className="flex items-center gap-1.5">
           <Image
-            src="/images/moodot-logo.png"
+            src="/images/logo.png"
             alt="Moodot"
             width={100}
             height={40}
-            className="h-20 w-auto translate-y-1.5"
+            className="h-7 w-auto"
             sizes="100px"
             priority
           />
         </div>
 
-        {/* Notification Button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-10 w-10 rounded-full bg-mb-card/80 hover:bg-mb-unselected text-mb-muted"
-        >
-          <Bell className="h-5 w-5" />
-          <span className="sr-only">Notifications</span>
-        </Button>
+        {/* Logo Orb */}
+        <Image
+          src="/images/orbit.png"
+          alt="Moodot"
+          width={50}
+          height={40}
+          className="h-10 w-auto"
+          priority
+        />
       </div>
     </header>
   )
