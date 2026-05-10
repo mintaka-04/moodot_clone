@@ -1,4 +1,4 @@
-supabase>=2.4.0
+supabase==2.30.0
 python-dotenv==1.0.0
 # realtime==1.0.0  # supabase 최신 버전과 충돌 (realtime>=2.x 필요)
 httpx>=0.27.0,<0.28.0
