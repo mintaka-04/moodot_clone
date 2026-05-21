@@ -41,7 +41,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           IMAGE="${ECR_REGISTRY}/moodotclone/moodotclone:latest"
-          DEPLOY_CMD="aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${ECR_REGISTRY} && docker pull ${IMAGE} && docker rm -f moodot-worker 2>/dev/null; docker run -d --name moodot-worker --env-file /home/ubuntu/moodot_clone/service/.env.local --restart always ${IMAGE}"
+          DEPLOY_CMD="aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${ECR_REGISTRY} && docker pull ${IMAGE} && docker rm -f moodot-worker 2>/dev/null; docker run -d --name moodot-worker --env-file /home/ubuntu/moodot_clone/service/.env.local --restart always --log-driver awslogs --log-opt awslogs-region=ap-northeast-2 --log-opt awslogs-group=/moodot-clone/worker --log-opt awslogs-stream=worker ${IMAGE}"
 
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
