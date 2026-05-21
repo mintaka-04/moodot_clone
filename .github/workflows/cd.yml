@@ -14,18 +14,39 @@ jobs:
       contents: read
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ap-northeast-2
 
-      - name: Deploy to EC2 via SSM
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
+          docker build -t $ECR_REGISTRY/moodot-worker:${{ github.sha }} ./service
+          docker tag $ECR_REGISTRY/moodot-worker:${{ github.sha }} $ECR_REGISTRY/moodot-worker:latest
+          docker push $ECR_REGISTRY/moodot-worker:${{ github.sha }}
+          docker push $ECR_REGISTRY/moodot-worker:latest
+
+      - name: Deploy to EC2 via SSM
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="${ECR_REGISTRY}/moodot-worker:latest"
+          DEPLOY_CMD="aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${ECR_REGISTRY} && docker pull ${IMAGE} && docker rm -f moodot-worker 2>/dev/null; docker run -d --name moodot-worker --env-file /home/ubuntu/moodot_clone/service/.env.local --restart always ${IMAGE}"
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["sudo -u ubuntu bash -c \"cd /home/ubuntu/moodot_clone && git pull origin develop && service/venv/bin/pip install -r service/requirements.txt -q\" && sudo systemctl restart moodot-worker && sudo systemctl status moodot-worker --no-pager"]' \
+            --parameters "commands=[\"${DEPLOY_CMD}\"]" \
             --query "Command.CommandId" \
             --output text)
 
