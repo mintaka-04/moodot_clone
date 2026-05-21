@@ -31,16 +31,16 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t $ECR_REGISTRY/moodot-worker:${{ github.sha }} ./service
-          docker tag $ECR_REGISTRY/moodot-worker:${{ github.sha }} $ECR_REGISTRY/moodot-worker:latest
-          docker push $ECR_REGISTRY/moodot-worker:${{ github.sha }}
-          docker push $ECR_REGISTRY/moodot-worker:latest
+          docker build -t $ECR_REGISTRY/moodotclone/moodotclone:${{ github.sha }} ./service
+          docker tag $ECR_REGISTRY/moodotclone/moodotclone:${{ github.sha }} $ECR_REGISTRY/moodotclone/moodotclone:latest
+          docker push $ECR_REGISTRY/moodotclone/moodotclone:${{ github.sha }}
+          docker push $ECR_REGISTRY/moodotclone/moodotclone:latest
 
       - name: Deploy to EC2 via SSM
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          IMAGE="${ECR_REGISTRY}/moodot-worker:latest"
+          IMAGE="${ECR_REGISTRY}/moodotclone/moodotclone:latest"
           DEPLOY_CMD="aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ${ECR_REGISTRY} && docker pull ${IMAGE} && docker rm -f moodot-worker 2>/dev/null; docker run -d --name moodot-worker --env-file /home/ubuntu/moodot_clone/service/.env.local --restart always ${IMAGE}"
 
           COMMAND_ID=$(aws ssm send-command \
