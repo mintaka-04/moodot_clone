@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class FrequencyLimitConfig:
-    enabled: bool = True
+    enabled: bool = False
     max_per_day: int = 2        # 하루 최대 개입 횟수
     min_hours_between: int = 4  # 개입 최소 간격 (시간)
 
