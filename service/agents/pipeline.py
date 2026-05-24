@@ -1,6 +1,7 @@
 """
 감정 이벤트 및 피드백 처리 파이프라인
 """
+import asyncio
 import logging
 from typing import Dict, Any, Optional
 
@@ -79,7 +80,8 @@ class Pipeline:
             context["action"] = action
             logger.info(f"   행동: {action}")
 
-            message, gen_meta = self.message_generator.generate_with_validation(
+            message, gen_meta = await asyncio.to_thread(
+                self.message_generator.generate_with_validation,
                 decision["reason"],
                 context
             )

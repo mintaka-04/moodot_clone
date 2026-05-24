@@ -1,7 +1,9 @@
 # main.py
 import os
 import asyncio
+import json
 import logging
+import boto3
 from dotenv import load_dotenv
 from supabase import acreate_client
 from typing import Dict, Any
@@ -10,16 +12,10 @@ from datetime import datetime, timedelta
 load_dotenv('.env.local')
 
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),  # DEBUG | INFO | WARNING | ERROR | CRITICAL
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-from models import InterventionRepository
-from rules import RuleEngine
-from config import LLMFactory
-from generators import MessageGenerator
-from agents import Pipeline
 
 
 async def create_supabase_client():
@@ -31,8 +27,24 @@ async def create_supabase_client():
     return client
 
 
-async def process_missed_emotions(supabase, pipeline: Pipeline) -> None:
-    """워커가 다운되었을 때 놓친 감정 처리 (안전장치)"""
+def create_sqs_client():
+    return boto3.client('sqs', region_name='ap-northeast-2')
+
+
+async def send_to_sqs(sqs, queue_url: str, payload: Dict[str, Any]) -> None:
+    try:
+        await asyncio.to_thread(
+            sqs.send_message,
+            QueueUrl=queue_url,
+            MessageBody=json.dumps(payload)
+        )
+        record_id = payload.get('record', {}).get('id', '?')
+        logger.info(f"📤 SQS 전송 완료: id={record_id}")
+    except Exception as e:
+        logger.error(f"❌ SQS 전송 실패: {e}", exc_info=True)
+
+
+async def process_missed_emotions(supabase, sqs, queue_url: str) -> None:
     logger.info("🔍 놓친 감정 확인 중...")
     try:
         one_minute_ago = (datetime.now() - timedelta(minutes=1)).isoformat()
@@ -49,30 +61,27 @@ async def process_missed_emotions(supabase, pipeline: Pipeline) -> None:
             logger.info("✅ 놓친 감정 없음")
             return
 
-        logger.warning(f"⚠️ 놓친 감정 {len(missed)}개 발견! 처리 시작...")
-        for emotion in missed:
-            await pipeline.process_emotion({'record': emotion})
-        logger.info("✅ 놓친 감정 처리 완료")
+        logger.warning(f"⚠️ 놓친 감정 {len(missed)}개 발견! SQS 재전송...")
+        for record in missed:
+            await send_to_sqs(sqs, queue_url, {'record': record})
+        logger.info("✅ 놓친 감정 SQS 재전송 완료")
 
     except Exception as e:
         logger.error(f"❌ 놓친 감정 처리 실패: {e}", exc_info=True)
 
 
-async def periodic_check(supabase, pipeline: Pipeline) -> None:
-    """5분마다 놓친 감정 체크"""
+async def periodic_check(supabase, sqs, queue_url: str) -> None:
     while True:
         await asyncio.sleep(5 * 60)
-        await process_missed_emotions(supabase, pipeline)
+        await process_missed_emotions(supabase, sqs, queue_url)
 
 
-async def initial_check(supabase, pipeline: Pipeline) -> None:
-    """초기 놓친 감정 체크 (5초 후)"""
+async def initial_check(supabase, sqs, queue_url: str) -> None:
     await asyncio.sleep(5)
-    await process_missed_emotions(supabase, pipeline)
+    await process_missed_emotions(supabase, sqs, queue_url)
 
 
 async def health_server() -> None:
-    """Render Web Service용 최소 HTTP 서버"""
     port = int(os.getenv("PORT", 8000))
 
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -97,35 +106,22 @@ async def health_server() -> None:
         await server.serve_forever()
 
 
-async def subscribe_channels(supabase, pipeline: Pipeline) -> None:
+async def subscribe_channels(supabase, sqs, queue_url: str) -> None:
     emotion_channel = supabase.channel('emotion_events')
     emotion_channel.on_postgres_changes(
         event='INSERT',
         schema='public',
         table='memories',
         callback=lambda payload: asyncio.get_running_loop().create_task(
-            pipeline.process_emotion(payload)
+            send_to_sqs(sqs, queue_url, payload)
         )
     )
     await emotion_channel.subscribe()
     logger.info(f"📡 emotion_channel state: {emotion_channel.state}")
-
-    feedback_channel = supabase.channel('feedback_events')
-    feedback_channel.on_postgres_changes(
-        event='INSERT',
-        schema='public',
-        table='intervention_feedback',
-        callback=lambda payload: asyncio.get_running_loop().create_task(
-            pipeline.process_feedback(payload)
-        )
-    )
-    await feedback_channel.subscribe()
-    logger.info(f"📡 feedback_channel state: {feedback_channel.state}")
     logger.info("✅ Realtime 구독 시작!")
 
 
-async def realtime_watchdog(supabase, pipeline: Pipeline) -> None:
-    """60초마다 WebSocket 연결 상태 확인 후 끊겼으면 재구독"""
+async def realtime_watchdog(supabase, sqs, queue_url: str) -> None:
     await asyncio.sleep(60)
     while True:
         await asyncio.sleep(60)
@@ -134,7 +130,7 @@ async def realtime_watchdog(supabase, pipeline: Pipeline) -> None:
             for attempt in range(3):
                 try:
                     await supabase.realtime.remove_all_channels()
-                    await subscribe_channels(supabase, pipeline)
+                    await subscribe_channels(supabase, sqs, queue_url)
                     logger.info("✅ Realtime 재연결 성공")
                     break
                 except Exception as e:
@@ -146,26 +142,19 @@ async def realtime_watchdog(supabase, pipeline: Pipeline) -> None:
 
 
 async def main() -> None:
-    logger.info("🚀 AI 에이전트 워커 시작...")
+    logger.info("🚀 수신 프로세스 시작...")
     logger.info(f"📡 Supabase URL: {os.getenv('SUPABASE_URL')}")
 
+    queue_url = os.getenv("SQS_QUEUE_URL")
+    if not queue_url:
+        raise ValueError("SQS_QUEUE_URL 환경변수가 설정되지 않았습니다.")
+
     supabase = await create_supabase_client()
-    intervention_repo = InterventionRepository(supabase)
-    rule_engine = RuleEngine(supabase)
-
-    try:
-        llm = LLMFactory.create()
-        message_generator = MessageGenerator(llm)
-        logger.info(f"✅ MessageGenerator 초기화 완료 ({llm.model_name})")
-    except Exception as e:
-        message_generator = None
-        logger.warning(f"⚠️ LLM 연결 실패 — 템플릿 메시지로 동작합니다: {e}")
-
-    pipeline = Pipeline(supabase, intervention_repo, rule_engine, message_generator)
+    sqs = create_sqs_client()
 
     for attempt in range(3):
         try:
-            await subscribe_channels(supabase, pipeline)
+            await subscribe_channels(supabase, sqs, queue_url)
             logger.info("👂 이벤트 대기 중... (Ctrl+C로 종료)")
             break
         except Exception as e:
@@ -176,9 +165,9 @@ async def main() -> None:
 
     await asyncio.gather(
         health_server(),
-        initial_check(supabase, pipeline),
-        periodic_check(supabase, pipeline),
-        realtime_watchdog(supabase, pipeline),
+        initial_check(supabase, sqs, queue_url),
+        periodic_check(supabase, sqs, queue_url),
+        realtime_watchdog(supabase, sqs, queue_url),
     )
 
 
@@ -186,4 +175,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("\n👋 워커 정상 종료됨")
+        logger.info("\n👋 수신 프로세스 정상 종료됨")
