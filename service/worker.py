@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import boto3
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from supabase import acreate_client
 
@@ -53,7 +54,13 @@ async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline) -> None:
 
             try:
                 payload = json.loads(message['Body'])
+                enqueued_at = payload.get('enqueued_at')
                 await pipeline.process_emotion(payload)
+
+                if enqueued_at:
+                    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(enqueued_at).replace(tzinfo=timezone.utc)).total_seconds()
+                    record_id = payload.get('record', {}).get('id', '?')
+                    logger.info(f"⏱ 처리 지연: {elapsed:.1f}s (id={record_id})")
 
                 await asyncio.to_thread(
                     sqs.delete_message,

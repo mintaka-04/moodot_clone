@@ -33,6 +33,7 @@ def create_sqs_client():
 
 async def send_to_sqs(sqs, queue_url: str, payload: Dict[str, Any]) -> None:
     try:
+        payload['enqueued_at'] = datetime.utcnow().isoformat()
         await asyncio.to_thread(
             sqs.send_message,
             QueueUrl=queue_url,
