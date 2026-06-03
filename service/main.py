@@ -7,7 +7,7 @@ import boto3
 from dotenv import load_dotenv
 from supabase import acreate_client
 from typing import Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 load_dotenv('.env.local')
 
@@ -33,7 +33,7 @@ def create_sqs_client():
 
 async def send_to_sqs(sqs, queue_url: str, payload: Dict[str, Any]) -> None:
     try:
-        payload['enqueued_at'] = datetime.utcnow().isoformat()
+        payload['enqueued_at'] = datetime.now(timezone.utc).isoformat()
         await asyncio.to_thread(
             sqs.send_message,
             QueueUrl=queue_url,
