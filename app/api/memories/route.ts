@@ -1,3 +1,4 @@
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs"
 import type { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
 
@@ -10,6 +11,8 @@ import {
 } from "@/lib/server/memory-records"
 import { encryptMemoryText } from "@/lib/server/memory-text-crypto"
 import { getSupabaseServerClient } from "@/lib/supabase/server"
+
+const sqsClient = new SQSClient({ region: process.env.AWS_REGION })
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -25,6 +28,7 @@ function buildCreatePayload(input: CreateMemoryInput, userId: string) {
     ...input,
     user_id: userId,
     text: null,
+    status: "pending",
     ...encryptedText,
   }
 }
@@ -106,7 +110,20 @@ export async function POST(request: Request) {
 
     if (error) throw error
 
-    return NextResponse.json({ id: (data as { id: number }).id })
+    const memoryId = (data as { id: number }).id
+
+    if (process.env.SQS_EVENT_QUEUE_URL) {
+      sqsClient
+        .send(
+          new SendMessageCommand({
+            QueueUrl: process.env.SQS_EVENT_QUEUE_URL,
+            MessageBody: JSON.stringify({ memory_id: memoryId }),
+          })
+        )
+        .catch((err) => logger.error("[memories/list] SQS publish error:", err))
+    }
+
+    return NextResponse.json({ id: memoryId })
   } catch (error) {
     logger.error("[memories/list] POST error:", error)
     const message =

@@ -1,13 +1,13 @@
-# main.py
+# main.py (rule-worker)
 import os
 import asyncio
 import json
 import logging
 import boto3
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from supabase import acreate_client
 from typing import Dict, Any
-from datetime import datetime, timedelta, timezone
 
 load_dotenv('.env.local')
 
@@ -17,13 +17,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+from rules import RuleEngine
+
 
 async def create_supabase_client():
     client = await acreate_client(
         os.getenv("SUPABASE_URL"),
         os.getenv("SUPABASE_SERVICE_KEY")
     )
-    client.realtime.timeout = 30
     return client
 
 
@@ -31,55 +32,149 @@ def create_sqs_client():
     return boto3.client('sqs', region_name='ap-northeast-2')
 
 
-async def send_to_sqs(sqs, queue_url: str, payload: Dict[str, Any]) -> None:
-    try:
-        payload['enqueued_at'] = datetime.now(timezone.utc).isoformat()
-        await asyncio.to_thread(
-            sqs.send_message,
-            QueueUrl=queue_url,
-            MessageBody=json.dumps(payload)
-        )
-        record_id = payload.get('record', {}).get('id', '?')
-        logger.info(f"📤 SQS 전송 완료: id={record_id}")
-    except Exception as e:
-        logger.error(f"❌ SQS 전송 실패: {e}", exc_info=True)
+async def update_status(supabase, memory_id: int, status: str) -> None:
+    await supabase.table('memories').update({'status': status}).eq('id', memory_id).execute()
 
 
-async def process_missed_emotions(supabase, sqs, queue_url: str) -> None:
-    logger.info("🔍 놓친 감정 확인 중...")
+async def send_to_ai_queue(sqs, queue_url: str, memory_id: int, user_id: str, decision: Dict[str, Any]) -> None:
+    payload = {
+        'memory_id': memory_id,
+        'user_id': user_id,
+        'reason': decision['reason'],
+        'context': decision.get('context', {}),
+        'enqueued_at': datetime.now(timezone.utc).isoformat(),
+    }
+    await asyncio.to_thread(
+        sqs.send_message,
+        QueueUrl=queue_url,
+        MessageBody=json.dumps(payload),
+    )
+    logger.info(f"📤 ai-queue 전송 완료 (memory_id={memory_id}, reason={decision['reason']})")
+
+
+async def send_to_event_queue(sqs, queue_url: str, memory_id: int) -> None:
+    await asyncio.to_thread(
+        sqs.send_message,
+        QueueUrl=queue_url,
+        MessageBody=json.dumps({'memory_id': memory_id}),
+    )
+    logger.info(f"📤 event-queue 재전송 (memory_id={memory_id})")
+
+
+async def poll_and_process(sqs, event_queue_url: str, ai_queue_url: str, supabase, rule_engine: RuleEngine) -> None:
+    logger.info("🔄 event-queue 폴링 시작...")
+    while True:
+        try:
+            response = await asyncio.to_thread(
+                sqs.receive_message,
+                QueueUrl=event_queue_url,
+                MaxNumberOfMessages=1,
+                WaitTimeSeconds=20,
+            )
+            messages = response.get('Messages', [])
+            if not messages:
+                continue
+
+            message = messages[0]
+            receipt_handle = message['ReceiptHandle']
+
+            try:
+                payload = json.loads(message['Body'])
+                memory_id = payload['memory_id']
+
+                # memory 조회
+                result = await supabase.table('memories') \
+                    .select('id, user_id, status') \
+                    .eq('id', memory_id) \
+                    .single() \
+                    .execute()
+
+                if not result.data:
+                    logger.warning(f"⚠️ memory 없음, skip (memory_id={memory_id})")
+                    await asyncio.to_thread(
+                        sqs.delete_message,
+                        QueueUrl=event_queue_url,
+                        ReceiptHandle=receipt_handle,
+                    )
+                    continue
+
+                memory = result.data
+                user_id = memory['user_id']
+
+                # 1. status = 'processing' (가장 먼저)
+                await update_status(supabase, memory_id, 'processing')
+
+                # 2. rule 판단
+                decision = await rule_engine.evaluate(user_id)
+
+                if decision.get('should_intervene'):
+                    # 3a. ai-queue 전송
+                    await send_to_ai_queue(sqs, ai_queue_url, memory_id, user_id, decision)
+                else:
+                    # 3b. AI 불필요 → filtered
+                    logger.info(f"⏭️ 개입 불필요, filtered (memory_id={memory_id}, reason={decision.get('reason')})")
+                    await update_status(supabase, memory_id, 'filtered')
+
+                # 4. event-queue 메시지 삭제 (가장 마지막)
+                await asyncio.to_thread(
+                    sqs.delete_message,
+                    QueueUrl=event_queue_url,
+                    ReceiptHandle=receipt_handle,
+                )
+
+            except Exception as e:
+                logger.error(f"❌ 메시지 처리 실패 (재처리 대기): {e}", exc_info=True)
+
+        except Exception as e:
+            logger.error(f"❌ SQS 폴링 오류: {e}", exc_info=True)
+            await asyncio.sleep(5)
+
+
+async def process_fallback(supabase, sqs, event_queue_url: str) -> None:
+    """pending/stuck-processing 항목을 event-queue로 재전송"""
+    logger.info("🔍 fallback 확인 중...")
     try:
-        one_minute_ago = (datetime.now() - timedelta(minutes=1)).isoformat()
-        result = await supabase.table('memories') \
-            .select('*') \
-            .eq('processed', False) \
-            .lt('created_at', one_minute_ago) \
+        five_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+
+        pending_result = await supabase.table('memories') \
+            .select('id') \
+            .eq('status', 'pending') \
             .order('created_at') \
             .limit(10) \
             .execute()
 
-        missed = result.data if hasattr(result, 'data') else []
-        if not missed:
-            logger.info("✅ 놓친 감정 없음")
+        stuck_result = await supabase.table('memories') \
+            .select('id') \
+            .eq('status', 'processing') \
+            .lt('updated_at', five_min_ago) \
+            .order('created_at') \
+            .limit(10) \
+            .execute()
+
+        targets = (pending_result.data or []) + (stuck_result.data or [])
+
+        if not targets:
+            logger.info("✅ fallback 대상 없음")
             return
 
-        logger.warning(f"⚠️ 놓친 감정 {len(missed)}개 발견! SQS 재전송...")
-        for record in missed:
-            await send_to_sqs(sqs, queue_url, {'record': record})
-        logger.info("✅ 놓친 감정 SQS 재전송 완료")
+        logger.warning(f"⚠️ fallback 대상 {len(targets)}개 발견, event-queue 재전송...")
+        for record in targets:
+            await send_to_event_queue(sqs, event_queue_url, record['id'])
+        logger.info("✅ fallback 재전송 완료")
 
     except Exception as e:
-        logger.error(f"❌ 놓친 감정 처리 실패: {e}", exc_info=True)
+        logger.error(f"❌ fallback 처리 실패: {e}", exc_info=True)
 
 
-async def periodic_check(supabase, sqs, queue_url: str) -> None:
+async def periodic_fallback(supabase, sqs, event_queue_url: str) -> None:
     while True:
         await asyncio.sleep(5 * 60)
-        await process_missed_emotions(supabase, sqs, queue_url)
+        await process_fallback(supabase, sqs, event_queue_url)
 
 
-async def initial_check(supabase, sqs, queue_url: str) -> None:
+async def initial_fallback(supabase, sqs, event_queue_url: str) -> None:
     await asyncio.sleep(5)
-    await process_missed_emotions(supabase, sqs, queue_url)
+    await process_fallback(supabase, sqs, event_queue_url)
 
 
 async def health_server() -> None:
@@ -107,68 +202,27 @@ async def health_server() -> None:
         await server.serve_forever()
 
 
-async def subscribe_channels(supabase, sqs, queue_url: str) -> None:
-    emotion_channel = supabase.channel('emotion_events')
-    emotion_channel.on_postgres_changes(
-        event='INSERT',
-        schema='public',
-        table='memories',
-        callback=lambda payload: asyncio.get_running_loop().create_task(
-            send_to_sqs(sqs, queue_url, payload)
-        )
-    )
-    await emotion_channel.subscribe()
-    logger.info(f"📡 emotion_channel state: {emotion_channel.state}")
-    logger.info("✅ Realtime 구독 시작!")
-
-
-async def realtime_watchdog(supabase, sqs, queue_url: str) -> None:
-    await asyncio.sleep(60)
-    while True:
-        await asyncio.sleep(60)
-        if not supabase.realtime.is_connected:
-            logger.warning("⚠️ Realtime 연결 끊김 감지. 재연결 시도...")
-            for attempt in range(3):
-                try:
-                    await supabase.realtime.remove_all_channels()
-                    await subscribe_channels(supabase, sqs, queue_url)
-                    logger.info("✅ Realtime 재연결 성공")
-                    break
-                except Exception as e:
-                    logger.error(f"재연결 실패 (시도 {attempt + 1}/3): {e}")
-                    if attempt < 2:
-                        await asyncio.sleep(5)
-            else:
-                logger.error("❌ Realtime 재연결 최종 실패. 워커를 재시작하세요.")
-
-
 async def main() -> None:
-    logger.info("🚀 수신 프로세스 시작...")
+    logger.info("🚀 rule-worker 시작...")
     logger.info(f"📡 Supabase URL: {os.getenv('SUPABASE_URL')}")
 
-    queue_url = os.getenv("SQS_QUEUE_URL")
-    if not queue_url:
+    event_queue_url = os.getenv("SQS_EVENT_QUEUE_URL")
+    ai_queue_url = os.getenv("SQS_QUEUE_URL")
+
+    if not event_queue_url:
+        raise ValueError("SQS_EVENT_QUEUE_URL 환경변수가 설정되지 않았습니다.")
+    if not ai_queue_url:
         raise ValueError("SQS_QUEUE_URL 환경변수가 설정되지 않았습니다.")
 
     supabase = await create_supabase_client()
+    rule_engine = RuleEngine(supabase)
     sqs = create_sqs_client()
-
-    for attempt in range(3):
-        try:
-            await subscribe_channels(supabase, sqs, queue_url)
-            logger.info("👂 이벤트 대기 중... (Ctrl+C로 종료)")
-            break
-        except Exception as e:
-            logger.error(f"구독 실패 (시도 {attempt + 1}/3): {e}")
-            if attempt == 2:
-                raise
-            await asyncio.sleep(5)
 
     await asyncio.gather(
         health_server(),
-        initial_check(supabase, sqs, queue_url),
-        periodic_check(supabase, sqs, queue_url),
-        realtime_watchdog(supabase, sqs, queue_url),
+        poll_and_process(sqs, event_queue_url, ai_queue_url, supabase, rule_engine),
+        initial_fallback(supabase, sqs, event_queue_url),
+        periodic_fallback(supabase, sqs, event_queue_url),
     )
 
 
@@ -176,4 +230,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("\n👋 수신 프로세스 정상 종료됨")
+        logger.info("\n👋 rule-worker 정상 종료됨")
