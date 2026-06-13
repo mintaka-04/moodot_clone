@@ -61,6 +61,55 @@ async def send_to_event_queue(sqs, queue_url: str, memory_id: int) -> None:
     logger.info(f"📤 event-queue 재전송 (memory_id={memory_id})")
 
 
+async def process_single_message(sqs, event_queue_url: str, ai_queue_url: str, message: dict, supabase, rule_engine: RuleEngine) -> None:
+    receipt_handle = message['ReceiptHandle']
+    try:
+        payload = json.loads(message['Body'])
+        memory_id = payload['memory_id']
+
+        result = await supabase.table('memories') \
+            .select('id, user_id, status') \
+            .eq('id', memory_id) \
+            .single() \
+            .execute()
+
+        if not result.data:
+            logger.warning(f"⚠️ memory 없음, skip (memory_id={memory_id})")
+            await asyncio.to_thread(
+                sqs.delete_message,
+                QueueUrl=event_queue_url,
+                ReceiptHandle=receipt_handle,
+            )
+            return
+
+        memory = result.data
+        user_id = memory['user_id']
+
+        # 1. status = 'processing' (가장 먼저)
+        await update_status(supabase, memory_id, 'processing')
+
+        # 2. rule 판단
+        decision = await rule_engine.evaluate(user_id)
+
+        if decision.get('should_intervene'):
+            # 3a. ai-queue 전송
+            await send_to_ai_queue(sqs, ai_queue_url, memory_id, user_id, decision)
+        else:
+            # 3b. AI 불필요 → filtered
+            logger.info(f"⏭️ 개입 불필요, filtered (memory_id={memory_id}, reason={decision.get('reason')})")
+            await update_status(supabase, memory_id, 'filtered')
+
+        # 4. event-queue 메시지 삭제 (가장 마지막)
+        await asyncio.to_thread(
+            sqs.delete_message,
+            QueueUrl=event_queue_url,
+            ReceiptHandle=receipt_handle,
+        )
+
+    except Exception as e:
+        logger.error(f"❌ 메시지 처리 실패 (재처리 대기): {e}", exc_info=True)
+
+
 async def poll_and_process(sqs, event_queue_url: str, ai_queue_url: str, supabase, rule_engine: RuleEngine) -> None:
     logger.info("🔄 event-queue 폴링 시작...")
     while True:
@@ -68,62 +117,17 @@ async def poll_and_process(sqs, event_queue_url: str, ai_queue_url: str, supabas
             response = await asyncio.to_thread(
                 sqs.receive_message,
                 QueueUrl=event_queue_url,
-                MaxNumberOfMessages=1,
+                MaxNumberOfMessages=10,
                 WaitTimeSeconds=20,
             )
             messages = response.get('Messages', [])
             if not messages:
                 continue
 
-            message = messages[0]
-            receipt_handle = message['ReceiptHandle']
-
-            try:
-                payload = json.loads(message['Body'])
-                memory_id = payload['memory_id']
-
-                # memory 조회
-                result = await supabase.table('memories') \
-                    .select('id, user_id, status') \
-                    .eq('id', memory_id) \
-                    .single() \
-                    .execute()
-
-                if not result.data:
-                    logger.warning(f"⚠️ memory 없음, skip (memory_id={memory_id})")
-                    await asyncio.to_thread(
-                        sqs.delete_message,
-                        QueueUrl=event_queue_url,
-                        ReceiptHandle=receipt_handle,
-                    )
-                    continue
-
-                memory = result.data
-                user_id = memory['user_id']
-
-                # 1. status = 'processing' (가장 먼저)
-                await update_status(supabase, memory_id, 'processing')
-
-                # 2. rule 판단
-                decision = await rule_engine.evaluate(user_id)
-
-                if decision.get('should_intervene'):
-                    # 3a. ai-queue 전송
-                    await send_to_ai_queue(sqs, ai_queue_url, memory_id, user_id, decision)
-                else:
-                    # 3b. AI 불필요 → filtered
-                    logger.info(f"⏭️ 개입 불필요, filtered (memory_id={memory_id}, reason={decision.get('reason')})")
-                    await update_status(supabase, memory_id, 'filtered')
-
-                # 4. event-queue 메시지 삭제 (가장 마지막)
-                await asyncio.to_thread(
-                    sqs.delete_message,
-                    QueueUrl=event_queue_url,
-                    ReceiptHandle=receipt_handle,
-                )
-
-            except Exception as e:
-                logger.error(f"❌ 메시지 처리 실패 (재처리 대기): {e}", exc_info=True)
+            await asyncio.gather(*[
+                process_single_message(sqs, event_queue_url, ai_queue_url, msg, supabase, rule_engine)
+                for msg in messages
+            ])
 
         except Exception as e:
             logger.error(f"❌ SQS 폴링 오류: {e}", exc_info=True)
