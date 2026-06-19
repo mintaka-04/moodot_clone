@@ -227,9 +227,9 @@ class RuleEngine:
                          ) FROM recent_7d) AS recent_emotions_json,
 
                         (SELECT COUNT(*)::int FROM recent_7d) AS emotion_total,
-                        (SELECT COUNT(*)::int FILTER (WHERE emotion = 'good') FROM recent_7d) AS emotion_positive,
-                        (SELECT COUNT(*)::int FILTER (WHERE emotion IN ('bad', 'sad')) FROM recent_7d) AS emotion_negative,
-                        (SELECT COUNT(*)::int FILTER (WHERE emotion = 'calm') FROM recent_7d) AS emotion_neutral,
+                        (SELECT (COUNT(*) FILTER (WHERE emotion = 'good'))::int FROM recent_7d) AS emotion_positive,
+                        (SELECT (COUNT(*) FILTER (WHERE emotion IN ('bad', 'sad')))::int FROM recent_7d) AS emotion_negative,
+                        (SELECT (COUNT(*) FILTER (WHERE emotion = 'calm'))::int FROM recent_7d) AS emotion_neutral,
 
                         CASE WHEN (SELECT COUNT(*) FROM feedback_recent) = 0 THEN NULL
                              ELSE (SELECT AVG(COALESCE(feedback_score, 0)) FROM feedback_recent)
