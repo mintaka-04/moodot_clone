@@ -37,7 +37,7 @@ async def get_recent_emotions(
                 SELECT m.id, m.emotion_id, m.text, m.text_ciphertext, m.text_iv,
                        m.created_at, m.user_id, ec.emotion
                 FROM memories m
-                LEFT JOIN emotion_categories ec ON ec.id = m.emotion_id
+                LEFT JOIN emotion_categories ec ON ec.emotion_id = m.emotion_id
                 WHERE m.user_id = $1 AND m.created_at >= $2
                 ORDER BY m.created_at DESC
                 LIMIT $3
@@ -119,7 +119,7 @@ async def get_consecutive_emotions(
                 """
                 SELECT ec.emotion
                 FROM memories m
-                LEFT JOIN emotion_categories ec ON ec.id = m.emotion_id
+                LEFT JOIN emotion_categories ec ON ec.emotion_id = m.emotion_id
                 WHERE m.user_id = $1
                 ORDER BY m.created_at DESC
                 LIMIT $2
@@ -212,7 +212,7 @@ async def get_emotion_by_id(
     try:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT * FROM emotion_categories WHERE id = $1",
+                "SELECT * FROM emotion_categories WHERE emotion_id = $1",
                 emotion_id,
             )
         return dict(row) if row else None
