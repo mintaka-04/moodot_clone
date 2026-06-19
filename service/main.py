@@ -88,7 +88,7 @@ async def process_single_message(sqs, event_queue_url: str, ai_queue_url: str, m
             )
             return
 
-        user_id = memory['user_id']
+        user_id = str(memory['user_id'])
 
         # 1. status = 'processing' (가장 먼저)
         await update_status(pool, memory_id, 'processing')

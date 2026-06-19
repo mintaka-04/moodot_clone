@@ -62,8 +62,8 @@ async def get_recent_emotions(
                 'emotion_id': row['emotion_id'],
                 'emotion_name': row['emotion'] or 'Unknown',
                 'text': plain_text or '',
-                'created_at': row['created_at'],
-                'user_id': row['user_id'],
+                'created_at': row['created_at'].isoformat() if row['created_at'] else None,
+                'user_id': str(row['user_id']) if row['user_id'] else None,
             })
 
         logger.debug(f"Found {len(emotions)} emotions for user: {user_id}")
