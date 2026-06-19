@@ -220,6 +220,14 @@ async def main() -> None:
     if not os.getenv("DATABASE_URL"):
         raise ValueError("DATABASE_URL 환경변수가 설정되지 않았습니다.")
 
+    import socket
+    db_host = os.getenv("DATABASE_URL", "").split("@")[-1].split(":")[0]
+    try:
+        ip = socket.gethostbyname(db_host)
+        logger.info(f"🔍 DB host={db_host} → {ip}")
+    except Exception as e:
+        logger.error(f"🔍 DB host DNS 실패: {e}")
+
     pool = await create_db_pool()
     logger.info("✅ DB pool 생성 완료")
 
