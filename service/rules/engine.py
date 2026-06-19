@@ -37,8 +37,8 @@ class RuleEngine:
         >>>     print(f"개입 필요: {result['reason']}")
     """
     
-    def __init__(self, supabase):
-        self.supabase = supabase
+    def __init__(self, pool):
+        self.pool = pool
         
         # 규칙 등록 (config.py에서 숫자/on-off 관리, 순서 무관 — priority로 자동 정렬)
         cfg = RULES_CONFIG
@@ -171,14 +171,14 @@ class RuleEngine:
             import asyncio
             
             results = await asyncio.gather(
-                count_today_interventions(self.supabase, user_id),
-                get_hours_since_last_intervention(self.supabase, user_id),
-                get_days_since_last_record(self.supabase, user_id),
-                get_consecutive_emotions(self.supabase, user_id, "negative"),
-                get_consecutive_emotions(self.supabase, user_id, "positive"),
-                get_recent_emotions(self.supabase, user_id, days=7),
-                get_emotion_statistics(self.supabase, user_id, days=7),
-                get_feedback_trend(self.supabase, user_id),
+                count_today_interventions(self.pool, user_id),
+                get_hours_since_last_intervention(self.pool, user_id),
+                get_days_since_last_record(self.pool, user_id),
+                get_consecutive_emotions(self.pool, user_id, "negative"),
+                get_consecutive_emotions(self.pool, user_id, "positive"),
+                get_recent_emotions(self.pool, user_id, days=7),
+                get_emotion_statistics(self.pool, user_id, days=7),
+                get_feedback_trend(self.pool, user_id),
                 return_exceptions=True  # 예외 발생해도 계속 진행
             )
 

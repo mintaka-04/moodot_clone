@@ -22,195 +22,129 @@ EMOTION_CATEGORIES = {
 
 
 async def get_recent_emotions(
-    supabase,
+    pool,
     user_id: str = DEFAULT_USER_ID,
     days: int = 7,
     limit: int = 50
 ) -> List[Dict[str, Any]]:
-    """
-    최근 N일간의 감정 기록 조회
-    
-    Args:
-        supabase: Supabase 클라이언트
-        user_id: 사용자 ID
-        days: 조회할 일수
-        limit: 최대 조회 개수
-    
-    Returns:
-        감정 기록 리스트
-    """
     try:
         start_date = datetime.now() - timedelta(days=days)
-        start_date_str = start_date.isoformat()
-        
         logger.debug(f"Querying emotions: user_id={user_id}, days={days}")
-        
-        result = await supabase.table('memories')\
-            .select('''
-                id,
-                emotion_id,
-                text,
-                text_ciphertext,
-                text_iv,
-                created_at,
-                user_id,
-                emotion_categories(emotion)
-            ''')\
-            .eq('user_id', user_id)\
-            .gte('created_at', start_date_str)\
-            .order('created_at', desc=True)\
-            .limit(limit)\
-            .execute()
-        
-        if hasattr(result, 'data') and result.data:
-            emotions = []
-            for item in result.data:
-                try:
-                    plain_text = decrypt_memory_text(
-                        item.get('text_ciphertext'),
-                        item.get('text_iv'),
-                        item.get('text'),
-                    )
-                except Exception as e:
-                    logger.warning(f"텍스트 복호화 실패 (id={item['id']}): {e}")
-                    plain_text = item.get('text', '')
 
-                emotion_data = {
-                    'id': item['id'],
-                    'emotion_id': item['emotion_id'],
-                    'emotion_name': item['emotion_categories']['emotion'] if item.get('emotion_categories') else 'Unknown',
-                    'text': plain_text or '',
-                    'created_at': item['created_at'],
-                    'user_id': item.get('user_id')
-                }
-                emotions.append(emotion_data)
-            
-            logger.debug(f"Found {len(emotions)} emotions for user: {user_id}")
-            return emotions
-        
-        logger.debug(f"No emotions found for user: {user_id}")
-        return []
-        
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT m.id, m.emotion_id, m.text, m.text_ciphertext, m.text_iv,
+                       m.created_at, m.user_id, ec.emotion
+                FROM memories m
+                LEFT JOIN emotion_categories ec ON ec.id = m.emotion_id
+                WHERE m.user_id = $1 AND m.created_at >= $2
+                ORDER BY m.created_at DESC
+                LIMIT $3
+                """,
+                user_id, start_date, limit,
+            )
+
+        emotions = []
+        for row in rows:
+            try:
+                plain_text = decrypt_memory_text(
+                    row['text_ciphertext'],
+                    row['text_iv'],
+                    row['text'],
+                )
+            except Exception as e:
+                logger.warning(f"텍스트 복호화 실패 (id={row['id']}): {e}")
+                plain_text = row['text'] or ''
+
+            emotions.append({
+                'id': row['id'],
+                'emotion_id': row['emotion_id'],
+                'emotion_name': row['emotion'] or 'Unknown',
+                'text': plain_text or '',
+                'created_at': row['created_at'],
+                'user_id': row['user_id'],
+            })
+
+        logger.debug(f"Found {len(emotions)} emotions for user: {user_id}")
+        return emotions
+
     except Exception as e:
         logger.error(f"Error getting recent emotions: {e}", exc_info=True)
         return []
 
 
 async def get_days_since_last_record(
-    supabase,
+    pool,
     user_id: str = DEFAULT_USER_ID
 ) -> Optional[int]:
-    """
-    마지막 감정 기록 이후 경과 일수
-    
-    Args:
-        supabase: Supabase 클라이언트
-        user_id: 사용자 ID
-    
-    Returns:
-        경과 일수 (기록 없으면 None)
-    """
     try:
-        result = await supabase.table('memories')\
-            .select('created_at')\
-            .eq('user_id', user_id)\
-            .order('created_at', desc=True)\
-            .limit(1)\
-            .execute()
-        
-        if hasattr(result, 'data') and result.data:
-            last_record = result.data[0]
-            last_date = datetime.fromisoformat(
-                last_record['created_at'].replace('Z', '+00:00')
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT created_at FROM memories WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+                user_id,
             )
-            
+
+        if row:
+            last_date = row['created_at']
+            if last_date.tzinfo is None:
+                from datetime import timezone
+                last_date = last_date.replace(tzinfo=timezone.utc)
             days_since = (datetime.now(last_date.tzinfo) - last_date).days
-            
             logger.debug(f"Days since last record: {days_since} (user: {user_id})")
             return days_since
-        
+
         logger.debug(f"No records found for user: {user_id}")
         return None
-        
+
     except Exception as e:
         logger.error(f"Error getting days since last record: {e}")
         return None
 
 
 async def get_consecutive_emotions(
-    supabase,
+    pool,
     user_id: str = DEFAULT_USER_ID,
     emotion_type: str = "negative",
     limit: int = 10
 ) -> int:
-    """
-    연속된 같은 유형의 감정 개수
-    
-    Args:
-        supabase: Supabase 클라이언트
-        user_id: 사용자 ID
-        emotion_type: 감정 유형
-            - "negative": 부정 감정 (bad, sad)
-            - "positive": 긍정 감정 (good)
-            - "neutral": 중립 (calm)
-        limit: 최대 확인 개수
-    
-    Returns:
-        연속된 감정 개수
-    """
     try:
-        result = await supabase.table('memories')\
-            .select('''
-                id,
-                emotion_id,
-                emotion_categories(emotion)
-            ''')\
-            .eq('user_id', user_id)\
-            .order('created_at', desc=True)\
-            .limit(limit)\
-            .execute()
-        
-        if not hasattr(result, 'data') or not result.data:
-            logger.debug(f"No emotions found for user: {user_id}")
-            return 0
-        
-        emotions = result.data
-        consecutive_count = 0
-        
-        # 해당 유형의 감정 리스트
         target_emotions = EMOTION_CATEGORIES.get(emotion_type, [])
-        
         if not target_emotions:
             logger.warning(f"Unknown emotion_type: {emotion_type}")
             return 0
-        
-        # 연속 카운트
-        for item in emotions:
-            emotion_cat = item.get('emotion_categories')
-            
-            if not emotion_cat:
-                logger.debug(f"No emotion_categories for item: {item.get('id')}")
-                break
-            
-            emotion_name = emotion_cat.get('emotion', '').lower()
-            
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT ec.emotion
+                FROM memories m
+                LEFT JOIN emotion_categories ec ON ec.id = m.emotion_id
+                WHERE m.user_id = $1
+                ORDER BY m.created_at DESC
+                LIMIT $2
+                """,
+                user_id, limit,
+            )
+
+        consecutive_count = 0
+        for row in rows:
+            emotion_name = (row['emotion'] or '').lower()
             if emotion_name in target_emotions:
                 consecutive_count += 1
-                logger.debug(f"Match: {emotion_name} is {emotion_type}")
             else:
-                logger.debug(f"Break: {emotion_name} is not {emotion_type}")
                 break
-        
+
         logger.info(f"Consecutive {emotion_type} emotions: {consecutive_count} (user: {user_id})")
         return consecutive_count
-        
+
     except Exception as e:
         logger.error(f"Error getting consecutive emotions: {e}", exc_info=True)
         return 0
 
 
 async def get_emotion_statistics(
-    supabase,
+    pool,
     user_id: str = DEFAULT_USER_ID,
     days: int = 7
 ) -> Dict[str, Any]:
@@ -226,7 +160,7 @@ async def get_emotion_statistics(
         통계 딕셔너리
     """
     try:
-        emotions = await get_recent_emotions(supabase, user_id, days=days)
+        emotions = await get_recent_emotions(pool, user_id, days=days)
         
         if not emotions:
             return {
@@ -272,31 +206,17 @@ async def get_emotion_statistics(
 
 
 async def get_emotion_by_id(
-    supabase,
+    pool,
     emotion_id: int
 ) -> Optional[Dict[str, Any]]:
-    """
-    emotion_id로 감정 정보 조회
-    
-    Args:
-        supabase: Supabase 클라이언트
-        emotion_id: 감정 카테고리 ID
-    
-    Returns:
-        감정 정보 딕셔너리
-    """
     try:
-        result = await supabase.table('emotion_categories')\
-            .select('*')\
-            .eq('emotion_id', emotion_id)\
-            .single()\
-            .execute()
-        
-        if hasattr(result, 'data') and result.data:
-            return result.data
-        
-        return None
-        
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM emotion_categories WHERE id = $1",
+                emotion_id,
+            )
+        return dict(row) if row else None
+
     except Exception as e:
         logger.error(f"Error getting emotion by id: {e}")
         return None

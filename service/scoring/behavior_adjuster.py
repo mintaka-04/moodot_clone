@@ -3,7 +3,6 @@
 """
 import logging
 from typing import Optional
-from supabase import Client
 
 REASON_TO_DEFAULT_ACTION = {
     "negative_pattern":      "empathy",
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 async def get_feedback_trend(
-    supabase: Client,
+    pool,
     user_id: str,
     limit: int = 5
 ) -> Optional[float]:
@@ -32,21 +31,23 @@ async def get_feedback_trend(
     shown 기록이 없으면 None.
     """
     try:
-        result = await supabase.table("interventions") \
-            .select("feedback_score") \
-            .eq("user_id", user_id) \
-            .in_("status", ["shown", "interacted"]) \
-            .order("created_at", desc=True) \
-            .limit(limit) \
-            .execute()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT feedback_score FROM interventions
+                WHERE user_id = $1 AND status IN ('shown', 'interacted')
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                user_id, limit,
+            )
 
-        rows = result.data if hasattr(result, "data") and result.data else []
         if not rows:
             return None
 
-        scores = [r.get("feedback_score") or 0 for r in rows]
+        scores = [r['feedback_score'] or 0 for r in rows]
         avg = sum(scores) / len(scores)
-        logger.debug(f"피드백 트렌드: user={user_id}, avg={avg:.2f} ({len(scores)}개, 무시={sum(1 for r in rows if r.get('feedback_score') is None)}개)")
+        logger.debug(f"피드백 트렌드: user={user_id}, avg={avg:.2f} ({len(scores)}개, 무시={sum(1 for r in rows if r['feedback_score'] is None)}개)")
         return avg
 
     except Exception as e:
