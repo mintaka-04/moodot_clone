@@ -10,17 +10,9 @@ from .negative_streak import NegativeStreakRule
 from .negative_ratio import NegativeRatioRule
 from .positive_streak import PositiveStreakRule
 
-from tools.emotion_tools import (
-    get_days_since_last_record,
-    get_consecutive_emotions,
-    get_recent_emotions,
-    get_emotion_statistics
-)
-from tools.intervention_tools import (
-    count_today_interventions,
-    get_hours_since_last_intervention
-)
-from scoring import get_feedback_trend
+import json as _json
+from collections import Counter
+from security.memory_crypto import decrypt_memory_text
 
 logger = logging.getLogger(__name__)
 
@@ -157,58 +149,141 @@ class RuleEngine:
         }
     
     async def _build_context(self, user_id: str) -> Dict[str, Any]:
-        """
-        모든 규칙에서 필요한 컨텍스트를 한 번에 수집합니다.
-        
-        Args:
-            user_id: 사용자 ID
-        
-        Returns:
-            컨텍스트 딕셔너리
-        """
+        _FALLBACK = {
+            'user_id': user_id,
+            'today_count': 0,
+            'hours_since_last': None,
+            'days_since_last_record': None,
+            'consecutive_negative': 0,
+            'consecutive_positive': 0,
+            'recent_emotions': [],
+            'emotion_stats': {
+                'total_count': 0, 'positive_count': 0, 'negative_count': 0,
+                'neutral_count': 0, 'most_frequent_emotion': None, 'emotion_distribution': {},
+            },
+            'feedback_avg_score': None,
+        }
         try:
-            # 병렬로 데이터 수집 (성능 최적화)
-            import asyncio
-            
-            results = await asyncio.gather(
-                count_today_interventions(self.pool, user_id),
-                get_hours_since_last_intervention(self.pool, user_id),
-                get_days_since_last_record(self.pool, user_id),
-                get_consecutive_emotions(self.pool, user_id, "negative"),
-                get_consecutive_emotions(self.pool, user_id, "positive"),
-                get_recent_emotions(self.pool, user_id, days=7),
-                get_emotion_statistics(self.pool, user_id, days=7),
-                get_feedback_trend(self.pool, user_id),
-                return_exceptions=True  # 예외 발생해도 계속 진행
-            )
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    WITH recent_memories AS (
+                        SELECT
+                            m.id, m.emotion_id, m.text, m.text_ciphertext, m.text_iv,
+                            m.created_at, m.user_id, ec.emotion,
+                            ROW_NUMBER() OVER (ORDER BY m.created_at DESC) AS rn
+                        FROM memories m
+                        LEFT JOIN emotion_categories ec ON ec.emotion_id = m.emotion_id
+                        WHERE m.user_id = $1
+                        ORDER BY m.created_at DESC
+                        LIMIT 50
+                    ),
+                    last_intervention AS (
+                        SELECT created_at FROM interventions
+                        WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1
+                    ),
+                    recent_7d AS (
+                        SELECT * FROM recent_memories
+                        WHERE created_at >= NOW() - INTERVAL '7 days'
+                    ),
+                    feedback_recent AS (
+                        SELECT feedback_score FROM interventions
+                        WHERE user_id = $1 AND status IN ('shown', 'interacted')
+                        ORDER BY created_at DESC LIMIT 5
+                    )
+                    SELECT
+                        (SELECT COUNT(*)::int FROM interventions
+                         WHERE user_id = $1
+                           AND created_at >= date_trunc('day', NOW())
+                        ) AS today_count,
 
-            # 결과 언팩
-            today_count, hours_since, days_since, consecutive_neg, consecutive_pos, recent_emotions, stats, feedback_avg = results
+                        EXTRACT(EPOCH FROM (NOW() - (SELECT created_at FROM last_intervention))) / 3600
+                            AS hours_since_last,
+
+                        FLOOR(EXTRACT(EPOCH FROM (NOW() - (SELECT created_at FROM recent_memories WHERE rn = 1))) / 86400)::int
+                            AS days_since_last_record,
+
+                        COALESCE(
+                            (SELECT MIN(rn)::int - 1 FROM recent_memories
+                             WHERE rn <= 10 AND (emotion IS NULL OR emotion NOT IN ('bad', 'sad'))),
+                            (SELECT COUNT(*)::int FROM recent_memories WHERE rn <= 10)
+                        ) AS consecutive_negative,
+
+                        COALESCE(
+                            (SELECT MIN(rn)::int - 1 FROM recent_memories
+                             WHERE rn <= 10 AND (emotion IS NULL OR emotion NOT IN ('good'))),
+                            (SELECT COUNT(*)::int FROM recent_memories WHERE rn <= 10)
+                        ) AS consecutive_positive,
+
+                        (SELECT json_agg(
+                            json_build_object(
+                                'id', id, 'emotion_id', emotion_id,
+                                'emotion_name', COALESCE(emotion, 'Unknown'),
+                                'text', text, 'text_ciphertext', text_ciphertext,
+                                'text_iv', text_iv,
+                                'created_at', created_at::text,
+                                'user_id', user_id::text
+                            ) ORDER BY created_at DESC
+                         ) FROM recent_7d) AS recent_emotions_json,
+
+                        (SELECT COUNT(*)::int FROM recent_7d) AS emotion_total,
+                        (SELECT COUNT(*)::int FILTER (WHERE emotion = 'good') FROM recent_7d) AS emotion_positive,
+                        (SELECT COUNT(*)::int FILTER (WHERE emotion IN ('bad', 'sad')) FROM recent_7d) AS emotion_negative,
+                        (SELECT COUNT(*)::int FILTER (WHERE emotion = 'calm') FROM recent_7d) AS emotion_neutral,
+
+                        CASE WHEN (SELECT COUNT(*) FROM feedback_recent) = 0 THEN NULL
+                             ELSE (SELECT AVG(COALESCE(feedback_score, 0)) FROM feedback_recent)
+                        END AS feedback_avg_score
+                    """,
+                    user_id,
+                )
+
+            raw_emotions = _json.loads(row['recent_emotions_json'] or 'null') or []
+            recent_emotions = []
+            for item in raw_emotions:
+                try:
+                    plain_text = decrypt_memory_text(
+                        item.get('text_ciphertext'),
+                        item.get('text_iv'),
+                        item.get('text'),
+                    )
+                except Exception as e:
+                    logger.warning(f"텍스트 복호화 실패: {e}")
+                    plain_text = item.get('text', '')
+
+                recent_emotions.append({
+                    'id': item['id'],
+                    'emotion_id': item['emotion_id'],
+                    'emotion_name': item.get('emotion_name', 'Unknown'),
+                    'text': plain_text or '',
+                    'created_at': item.get('created_at'),
+                    'user_id': item.get('user_id'),
+                })
+
+            emotion_counts = Counter(e['emotion_name'] for e in recent_emotions)
 
             return {
                 'user_id': user_id,
-                'today_count': today_count if not isinstance(today_count, Exception) else 0,
-                'hours_since_last': hours_since if not isinstance(hours_since, Exception) else None,
-                'days_since_last_record': days_since if not isinstance(days_since, Exception) else None,
-                'consecutive_negative': consecutive_neg if not isinstance(consecutive_neg, Exception) else 0,
-                'consecutive_positive': consecutive_pos if not isinstance(consecutive_pos, Exception) else 0,
-                'recent_emotions': recent_emotions if not isinstance(recent_emotions, Exception) else [],
-                'emotion_stats': stats if not isinstance(stats, Exception) else {},
-                'feedback_avg_score': feedback_avg if not isinstance(feedback_avg, Exception) else None,
+                'today_count': row['today_count'] or 0,
+                'hours_since_last': round(float(row['hours_since_last']), 2) if row['hours_since_last'] is not None else None,
+                'days_since_last_record': row['days_since_last_record'],
+                'consecutive_negative': row['consecutive_negative'] or 0,
+                'consecutive_positive': row['consecutive_positive'] or 0,
+                'recent_emotions': recent_emotions,
+                'emotion_stats': {
+                    'total_count': row['emotion_total'] or 0,
+                    'positive_count': row['emotion_positive'] or 0,
+                    'negative_count': row['emotion_negative'] or 0,
+                    'neutral_count': row['emotion_neutral'] or 0,
+                    'most_frequent_emotion': emotion_counts.most_common(1)[0][0] if emotion_counts else None,
+                    'emotion_distribution': dict(emotion_counts),
+                },
+                'feedback_avg_score': float(row['feedback_avg_score']) if row['feedback_avg_score'] is not None else None,
             }
-        
+
         except Exception as e:
             logger.error(f"❌ 컨텍스트 수집 실패: {e}", exc_info=True)
-            # 최소한의 기본값 반환
-            return {
-                'user_id': user_id,
-                'today_count': 0,
-                'hours_since_last': None,
-                'days_since_last_record': None,
-                'consecutive_negative': 0,
-                'recent_emotions': [],
-                'emotion_stats': {}
-            }
+            return _FALLBACK
     
     def add_rule(self, rule: Rule) -> None:
         """
