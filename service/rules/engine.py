@@ -205,13 +205,13 @@ class RuleEngine:
 
                         COALESCE(
                             (SELECT MIN(rn)::int - 1 FROM recent_memories
-                             WHERE rn <= 10 AND (emotion IS NULL OR emotion NOT IN ('bad', 'sad'))),
+                             WHERE rn <= 10 AND (emotion IS NULL OR LOWER(emotion) NOT IN ('bad', 'sad'))),
                             (SELECT COUNT(*)::int FROM recent_memories WHERE rn <= 10)
                         ) AS consecutive_negative,
 
                         COALESCE(
                             (SELECT MIN(rn)::int - 1 FROM recent_memories
-                             WHERE rn <= 10 AND (emotion IS NULL OR emotion NOT IN ('good'))),
+                             WHERE rn <= 10 AND (emotion IS NULL OR LOWER(emotion) NOT IN ('good'))),
                             (SELECT COUNT(*)::int FROM recent_memories WHERE rn <= 10)
                         ) AS consecutive_positive,
 
@@ -227,9 +227,9 @@ class RuleEngine:
                          ) FROM recent_7d) AS recent_emotions_json,
 
                         (SELECT COUNT(*)::int FROM recent_7d) AS emotion_total,
-                        (SELECT (COUNT(*) FILTER (WHERE emotion = 'good'))::int FROM recent_7d) AS emotion_positive,
-                        (SELECT (COUNT(*) FILTER (WHERE emotion IN ('bad', 'sad')))::int FROM recent_7d) AS emotion_negative,
-                        (SELECT (COUNT(*) FILTER (WHERE emotion = 'calm'))::int FROM recent_7d) AS emotion_neutral,
+                        (SELECT (COUNT(*) FILTER (WHERE LOWER(emotion) = 'good'))::int FROM recent_7d) AS emotion_positive,
+                        (SELECT (COUNT(*) FILTER (WHERE LOWER(emotion) IN ('bad', 'sad')))::int FROM recent_7d) AS emotion_negative,
+                        (SELECT (COUNT(*) FILTER (WHERE LOWER(emotion) = 'calm'))::int FROM recent_7d) AS emotion_neutral,
 
                         CASE WHEN (SELECT COUNT(*) FROM feedback_recent) = 0 THEN NULL
                              ELSE (SELECT AVG(COALESCE(feedback_score, 0)) FROM feedback_recent)
