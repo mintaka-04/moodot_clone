@@ -38,6 +38,57 @@ async def update_status(supabase, memory_id: int, status: str) -> None:
     await supabase.table('memories').update({'status': status}).eq('id', memory_id).execute()
 
 
+async def process_single_message(sqs, queue_url: str, message: dict, pipeline: Pipeline, supabase) -> None:
+    receipt_handle = message['ReceiptHandle']
+    try:
+        payload = json.loads(message['Body'])
+        memory_id = payload['memory_id']
+        enqueued_at = payload.get('enqueued_at')
+
+        result = await supabase.table('memories') \
+            .select('status') \
+            .eq('id', memory_id) \
+            .single() \
+            .execute()
+        current_status = result.data.get('status') if result.data else None
+
+        if current_status == 'done':
+            logger.info(f"⏭️ 이미 처리됨, skip (memory_id={memory_id})")
+            await asyncio.to_thread(
+                sqs.delete_message,
+                QueueUrl=queue_url,
+                ReceiptHandle=receipt_handle,
+            )
+            return
+
+        await update_status(supabase, memory_id, 'processing')
+
+        success = await pipeline.process_emotion(
+            memory_id=memory_id,
+            user_id=payload['user_id'],
+            reason=payload['reason'],
+            context=payload.get('context', {}),
+        )
+
+        await update_status(supabase, memory_id, 'done' if success else 'failed')
+
+        if enqueued_at:
+            elapsed = (
+                datetime.now(timezone.utc)
+                - datetime.fromisoformat(enqueued_at).replace(tzinfo=timezone.utc)
+            ).total_seconds()
+            logger.info(f"⏱ 처리 지연: {elapsed:.1f}s (memory_id={memory_id})")
+
+        await asyncio.to_thread(
+            sqs.delete_message,
+            QueueUrl=queue_url,
+            ReceiptHandle=receipt_handle,
+        )
+
+    except Exception as e:
+        logger.error(f"❌ 메시지 처리 실패 (재처리 대기): {e}", exc_info=True)
+
+
 async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline, supabase) -> None:
     logger.info("🔄 SQS 폴링 시작...")
     while True:
@@ -45,64 +96,17 @@ async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline, supabase) ->
             response = await asyncio.to_thread(
                 sqs.receive_message,
                 QueueUrl=queue_url,
-                MaxNumberOfMessages=1,
+                MaxNumberOfMessages=10,
                 WaitTimeSeconds=20,
             )
             messages = response.get('Messages', [])
             if not messages:
                 continue
 
-            message = messages[0]
-            receipt_handle = message['ReceiptHandle']
-
-            try:
-                payload = json.loads(message['Body'])
-                memory_id = payload['memory_id']
-                enqueued_at = payload.get('enqueued_at')
-
-                # idempotency 체크
-                result = await supabase.table('memories') \
-                    .select('status') \
-                    .eq('id', memory_id) \
-                    .single() \
-                    .execute()
-                current_status = result.data.get('status') if result.data else None
-
-                if current_status == 'done':
-                    logger.info(f"⏭️ 이미 처리됨, skip (memory_id={memory_id})")
-                    await asyncio.to_thread(
-                        sqs.delete_message,
-                        QueueUrl=queue_url,
-                        ReceiptHandle=receipt_handle,
-                    )
-                    continue
-
-                await update_status(supabase, memory_id, 'processing')
-
-                success = await pipeline.process_emotion(
-                    memory_id=memory_id,
-                    user_id=payload['user_id'],
-                    reason=payload['reason'],
-                    context=payload.get('context', {}),
-                )
-
-                await update_status(supabase, memory_id, 'done' if success else 'failed')
-
-                if enqueued_at:
-                    elapsed = (
-                        datetime.now(timezone.utc)
-                        - datetime.fromisoformat(enqueued_at).replace(tzinfo=timezone.utc)
-                    ).total_seconds()
-                    logger.info(f"⏱ 처리 지연: {elapsed:.1f}s (memory_id={memory_id})")
-
-                await asyncio.to_thread(
-                    sqs.delete_message,
-                    QueueUrl=queue_url,
-                    ReceiptHandle=receipt_handle,
-                )
-
-            except Exception as e:
-                logger.error(f"❌ 메시지 처리 실패 (재처리 대기): {e}", exc_info=True)
+            await asyncio.gather(*[
+                process_single_message(sqs, queue_url, msg, pipeline, supabase)
+                for msg in messages
+            ])
 
         except Exception as e:
             logger.error(f"❌ SQS 폴링 오류: {e}", exc_info=True)
