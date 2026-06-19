@@ -229,6 +229,12 @@ async def main() -> None:
         logger.error(f"🔍 DB host DNS 실패: {e}")
 
     try:
+        info = socket.getaddrinfo("google.com", 80)
+        logger.info(f"🔍 google.com resolve: {info}")
+    except Exception as e:
+        logger.error(f"🔍 google.com DNS 실패: {e}")
+
+    try:
         with open("/etc/resolv.conf") as f:
             logger.info(f"🔍 resolv.conf:\n{f.read()}")
     except Exception as e:
