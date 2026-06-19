@@ -228,6 +228,12 @@ async def main() -> None:
     except Exception as e:
         logger.error(f"🔍 DB host DNS 실패: {e}")
 
+    try:
+        with open("/etc/resolv.conf") as f:
+            logger.info(f"🔍 resolv.conf:\n{f.read()}")
+    except Exception as e:
+        logger.error(f"🔍 resolv.conf 읽기 실패: {e}")
+
     pool = await create_db_pool()
     logger.info("✅ DB pool 생성 완료")
 
