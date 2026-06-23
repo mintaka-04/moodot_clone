@@ -146,7 +146,5 @@ export async function updateMemory(id: number, input: UpdateMemoryInput): Promis
 
 /** 메모리 삭제. 에러 시 throw. */
 export async function deleteMemory(id: number): Promise<void> {
-  const supabase = getSupabaseBrowserClient()
-  const { error } = await supabase.from("memories").delete().eq("id", id)
-  if (error) throw error
+  await requestJson<void>(`/api/memories/${id}`, { method: "DELETE" })
 }

@@ -92,10 +92,15 @@ export function AIInsight() {
   const [feedbackGiven, setFeedbackGiven] = useState(false)
   const [feedbackResponse, setFeedbackResponse] = useState<string | null>(null)
   const [aiState, setAiState] = useState<"idle" | "thinking" | "has_message">("idle")
+  const [isAnonymous, setIsAnonymous] = useState(false)
 
   // 초기 로드
   useEffect(() => {
     const supabase = getSupabaseBrowserClient()
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setIsAnonymous(user?.is_anonymous ?? false)
+    })
 
     getLatestPendingIntervention().then((data) => {
       if (data) {
@@ -239,7 +244,7 @@ export function AIInsight() {
             <p className="relative font-body text-sm text-mb-dark leading-relaxed text-center">
               {feedbackGiven ? feedbackResponse : intervention?.message}
             </p>
-            {!feedbackGiven && intervention?.message_type && (() => {
+            {!feedbackGiven && !isAnonymous && intervention?.message_type && (() => {
               const variants = FEEDBACK_VARIANTS[intervention.message_type]
               const variant = variants?.[variantIdx] ?? variants?.[0]
               if (!variant) return null

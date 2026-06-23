@@ -1,5 +1,3 @@
-import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-
 // ---------- Types ----------
 
 export type Intervention = {
@@ -14,59 +12,37 @@ export type Intervention = {
 // ---------- Functions ----------
 
 export async function getLatestPendingIntervention(): Promise<Intervention | null> {
-  const supabase = getSupabaseBrowserClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data, error } = await supabase
-    .from("interventions")
-    .select("*")
-    .eq("status", "pending")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-
-  if (error) throw error
-  if (!data || data.length === 0) return null
-  return data[0] as Intervention
+  const res = await fetch("/api/interventions", { cache: "no-store" })
+  if (!res.ok) return null
+  return res.json() as Promise<Intervention | null>
 }
 
 export async function markInterventionAsShown(id: number): Promise<void> {
-  const supabase = getSupabaseBrowserClient()
-  const { error } = await supabase
-    .from("interventions")
-    .update({ status: "shown" })
-    .eq("id", id)
-
-  if (error) throw error
+  await fetch(`/api/interventions/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "shown" }),
+  })
 }
 
 export async function markInterventionAsInteracted(id: number): Promise<void> {
-  const supabase = getSupabaseBrowserClient()
-  const { error } = await supabase
-    .from("interventions")
-    .update({ status: "interacted" })
-    .eq("id", id)
-
-  if (error) throw error
+  await fetch(`/api/interventions/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "interacted" }),
+  })
 }
 
 export async function submitFeedback(
   interventionId: number,
-  explicitScore: 2 | -2
+  explicitScore: 2 | -2,
 ): Promise<void> {
-  const supabase = getSupabaseBrowserClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return
-
-  const { error } = await supabase
-    .from("intervention_feedback")
-    .insert({
+  await fetch("/api/intervention-feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
       intervention_id: interventionId,
-      user_id: user.id,
       explicit_score: explicitScore,
-    })
-
-  if (error) throw error
+    }),
+  })
 }
