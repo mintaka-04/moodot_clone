@@ -106,20 +106,29 @@ export function AIInsight() {
       if (data) {
         setIntervention(data)
         setAiState("has_message")
+      } else {
+        // localStorage 플래그(createMemory 성공 시 설정) 또는 서버 상태 기반으로 thinking 판단
+        const flag = localStorage.getItem("ai_processing")
+        if (flag === "true") {
+          setAiState("thinking")
+          fetch("/api/memories/ai-state")
+            .then((r) => r.json())
+            .then(({ thinking }: { thinking: boolean }) => {
+              if (!thinking) {
+                localStorage.removeItem("ai_processing")
+                setAiState("idle")
+              }
+            })
+            .catch(() => {})
+        } else {
+          fetch("/api/memories/ai-state")
+            .then((r) => r.json())
+            .then(({ thinking }: { thinking: boolean }) => {
+              if (thinking) setAiState("thinking")
+            })
+            .catch(() => {})
+        }
       }
-    })
-
-    // 최근 기록이 미처리 상태면 생각중
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return
-      supabase.from("memories")
-        .select("processed")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .then(({ data }) => {
-          if (data?.[0]?.processed === false) setAiState("thinking")
-        })
     })
 
     getRecentMemories(1)
@@ -135,35 +144,42 @@ export function AIInsight() {
       })
   }, [])
 
-  // Realtime 구독 — memories INSERT/UPDATE + interventions INSERT
+  // thinking 상태일 때만 SSE 연결
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient()
+    if (aiState !== "thinking") return
 
-    const memoriesChannel = supabase
-      .channel("memories-changes")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "memories" }, () => {
-        setAiState("thinking")
-      })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "memories" }, (payload) => {
-        if (payload.new?.processed === true) {
-          setAiState((prev) => prev === "thinking" ? "idle" : prev)
+    const es = new EventSource("/api/events")
+
+    es.onmessage = (e) => {
+      try {
+        const { intervention_id } = JSON.parse(e.data)
+        if (intervention_id) {
+          getLatestPendingIntervention().then((data) => {
+            if (data) {
+              setIntervention(data)
+              setAiState("has_message")
+            } else {
+              setAiState("idle")
+            }
+            localStorage.removeItem("ai_processing")
+          })
+        } else {
+          // AI가 intervention 생성 안 함
+          setAiState("idle")
+          localStorage.removeItem("ai_processing")
         }
-      })
-      .subscribe()
+      } catch {}
+      es.close()
+    }
 
-    const interventionsChannel = supabase
-      .channel("interventions-insert")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "interventions" }, (payload) => {
-        setIntervention(payload.new as Intervention)
-        setAiState("has_message")
-      })
-      .subscribe()
+    es.onerror = () => {
+      es.close()
+    }
 
     return () => {
-      supabase.removeChannel(memoriesChannel)
-      supabase.removeChannel(interventionsChannel)
+      es.close()
     }
-  }, [])
+  }, [aiState])
 
   const bg = (isLoading || latestEmotionId == null || !EMOTION_BG[latestEmotionId]) ? DEFAULT_BG : EMOTION_BG[latestEmotionId]
 

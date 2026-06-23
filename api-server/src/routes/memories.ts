@@ -10,6 +10,25 @@ const SELECT_COLUMNS = `
   location_label, location_lat, location_lng
 `
 
+// GET /memories/ai-state — AI 처리 중 여부 확인 (최신 메모리 status 기반)
+router.get("/ai-state", async (req: AuthRequest, res: Response) => {
+  const pool = getPool()
+  const userId = req.userId!
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT status FROM memories WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [userId],
+    )
+    const status = rows[0]?.status ?? null
+    const thinking = status === "pending" || status === "processing"
+    res.json({ thinking })
+  } catch (err) {
+    console.error("[memories] GET /ai-state error:", err)
+    res.status(500).json({ error: "상태 조회 실패" })
+  }
+})
+
 // GET /memories
 router.get("/", async (req: AuthRequest, res: Response) => {
   const pool = getPool()

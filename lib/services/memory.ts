@@ -133,6 +133,8 @@ export async function createMemory(input: CreateMemoryInput): Promise<number> {
     body: JSON.stringify(input),
   })
 
+  localStorage.setItem("ai_processing", "true")
+
   return data.id
 }
 
