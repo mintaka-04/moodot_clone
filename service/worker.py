@@ -1,12 +1,11 @@
-# worker.py
 import os
 import asyncio
 import json
 import logging
 import boto3
+import asyncpg
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from supabase import acreate_client
 
 load_dotenv('.env.local')
 
@@ -22,35 +21,45 @@ from generators import MessageGenerator
 from agents import Pipeline
 
 
-async def create_supabase_client():
-    client = await acreate_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_SERVICE_KEY")
+async def create_db_pool():
+    return await asyncpg.create_pool(
+        dsn=os.getenv("DATABASE_URL"),
+        min_size=1,
+        max_size=4,
+        ssl='require',
+        statement_cache_size=0,
     )
-    return client
 
 
 def create_sqs_client():
     return boto3.client('sqs', region_name='ap-northeast-2')
 
 
-async def update_status(supabase, memory_id: int, status: str) -> None:
-    await supabase.table('memories').update({'status': status}).eq('id', memory_id).execute()
+async def get_memory_status(pool, memory_id: int) -> str | None:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT status FROM memories WHERE id = $1",
+            memory_id,
+        )
+    return row['status'] if row else None
 
 
-async def process_single_message(sqs, queue_url: str, message: dict, pipeline: Pipeline, supabase) -> None:
+async def update_status(pool, memory_id: int, status: str) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE memories SET status = $1, updated_at = NOW() WHERE id = $2",
+            status, memory_id,
+        )
+
+
+async def process_single_message(sqs, queue_url: str, message: dict, pipeline: Pipeline, pool) -> None:
     receipt_handle = message['ReceiptHandle']
     try:
         payload = json.loads(message['Body'])
         memory_id = payload['memory_id']
         enqueued_at = payload.get('enqueued_at')
 
-        result = await supabase.table('memories') \
-            .select('status') \
-            .eq('id', memory_id) \
-            .single() \
-            .execute()
-        current_status = result.data.get('status') if result.data else None
+        current_status = await get_memory_status(pool, memory_id)
 
         if current_status == 'done':
             logger.info(f"⏭️ 이미 처리됨, skip (memory_id={memory_id})")
@@ -61,7 +70,7 @@ async def process_single_message(sqs, queue_url: str, message: dict, pipeline: P
             )
             return
 
-        await update_status(supabase, memory_id, 'processing')
+        await update_status(pool, memory_id, 'processing')
 
         success = await pipeline.process_emotion(
             memory_id=memory_id,
@@ -70,7 +79,7 @@ async def process_single_message(sqs, queue_url: str, message: dict, pipeline: P
             context=payload.get('context', {}),
         )
 
-        await update_status(supabase, memory_id, 'done' if success else 'failed')
+        await update_status(pool, memory_id, 'done' if success else 'failed')
 
         if enqueued_at:
             elapsed = (
@@ -89,7 +98,7 @@ async def process_single_message(sqs, queue_url: str, message: dict, pipeline: P
         logger.error(f"❌ 메시지 처리 실패 (재처리 대기): {e}", exc_info=True)
 
 
-async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline, supabase) -> None:
+async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline, pool) -> None:
     logger.info("🔄 SQS 폴링 시작...")
     while True:
         try:
@@ -104,7 +113,7 @@ async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline, supabase) ->
                 continue
 
             await asyncio.gather(*[
-                process_single_message(sqs, queue_url, msg, pipeline, supabase)
+                process_single_message(sqs, queue_url, msg, pipeline, pool)
                 for msg in messages
             ])
 
@@ -119,9 +128,13 @@ async def main() -> None:
     queue_url = os.getenv("SQS_QUEUE_URL")
     if not queue_url:
         raise ValueError("SQS_QUEUE_URL 환경변수가 설정되지 않았습니다.")
+    if not os.getenv("DATABASE_URL"):
+        raise ValueError("DATABASE_URL 환경변수가 설정되지 않았습니다.")
 
-    supabase = await create_supabase_client()
-    intervention_repo = InterventionRepository(supabase)
+    pool = await create_db_pool()
+    logger.info("✅ DB pool 생성 완료")
+
+    intervention_repo = InterventionRepository(pool)
 
     try:
         llm = LLMFactory.create()
@@ -131,10 +144,10 @@ async def main() -> None:
         message_generator = None
         logger.warning(f"⚠️ LLM 연결 실패 — 템플릿 메시지로 동작합니다: {e}")
 
-    pipeline = Pipeline(supabase, intervention_repo, message_generator)
+    pipeline = Pipeline(pool, intervention_repo, message_generator)
     sqs = create_sqs_client()
 
-    await poll_and_process(sqs, queue_url, pipeline, supabase)
+    await poll_and_process(sqs, queue_url, pipeline, pool)
 
 
 if __name__ == "__main__":

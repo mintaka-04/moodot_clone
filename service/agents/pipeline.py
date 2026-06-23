@@ -14,11 +14,11 @@ class Pipeline:
 
     def __init__(
         self,
-        supabase,
+        pool,
         intervention_repo: InterventionRepository,
         message_generator: Optional[MessageGenerator],
     ):
-        self.supabase = supabase
+        self.pool = pool
         self.intervention_repo = intervention_repo
         self.message_generator = message_generator
 
@@ -76,7 +76,7 @@ class Pipeline:
             if not intervention_id:
                 return
 
-            score = await calculate_score(self.supabase, intervention_id)
-            await save_score(self.supabase, intervention_id, score)
+            score = await calculate_score(self.pool, intervention_id)
+            await save_score(self.pool, intervention_id, score)
         except Exception as e:
             logger.error(f"❌ 피드백 처리 실패: {e}", exc_info=True)
