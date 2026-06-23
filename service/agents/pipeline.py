@@ -58,7 +58,7 @@ class Pipeline:
 
             if intervention_id:
                 logger.info(f"✅ Intervention 생성 완료: {intervention_id}")
-                return True
+                return {"intervention_id": intervention_id}
             else:
                 logger.error("❌ Intervention 생성 실패")
                 return False
