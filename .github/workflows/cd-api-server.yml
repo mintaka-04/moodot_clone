@@ -1,0 +1,45 @@
+name: Deploy API Server to ECS
+
+on:
+  push:
+    branches: ["develop"]
+    paths:
+      - "api-server/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/moodotclone/api-server:${{ github.sha }} ./api-server
+          docker tag $ECR_REGISTRY/moodotclone/api-server:${{ github.sha }} $ECR_REGISTRY/moodotclone/api-server:latest
+          docker push $ECR_REGISTRY/moodotclone/api-server:${{ github.sha }}
+          docker push $ECR_REGISTRY/moodotclone/api-server:latest
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster moodotclone \
+            --service moodotclone-api-server \
+            --force-new-deployment \
+            --no-cli-pager

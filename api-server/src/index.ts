@@ -1,4 +1,5 @@
 import express from "express"
+import cors from "cors"
 import { requireAuth } from "./auth"
 import memoriesRouter from "./routes/memories"
 import interventionsRouter from "./routes/interventions"
@@ -9,6 +10,19 @@ import eventsRouter from "./routes/events"
 
 const app = express()
 const PORT = parseInt(process.env.PORT ?? "8080", 10)
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").filter(Boolean)
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error("Not allowed by CORS"))
+    }
+  },
+  credentials: true,
+}))
 
 app.use(express.json())
 
