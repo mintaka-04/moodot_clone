@@ -44,5 +44,5 @@ app.post("/api/events/notify", eventsRouter)      // 내부 통신 — requireAu
 app.use("/api/events", requireAuth, eventsRouter) // 브라우저 SSE 연결
 
 app.listen(PORT, () => {
-  console.log(`API server running on port ${PORT}`)
+  console.log(`API server v2 running on port ${PORT}`)
 })
