@@ -18,6 +18,7 @@ export async function apiRequest<T>(
   }
 
   const token = await getAccessToken()
+  console.log("[api-client] token:", token ? "exists" : "null")
   if (!token) {
     throw new Error("인증이 필요합니다.")
   }
