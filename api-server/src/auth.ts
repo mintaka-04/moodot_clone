@@ -26,7 +26,8 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     req.userId = payload.sub
     req.isAnonymous = payload.is_anonymous ?? false
     next()
-  } catch {
+  } catch (err) {
+    console.error("[auth] jwt.verify failed:", err)
     res.status(401).json({ error: "유효하지 않은 토큰입니다." })
   }
 }
