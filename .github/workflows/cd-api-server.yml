@@ -37,9 +37,23 @@ jobs:
           docker push $ECR_REGISTRY/moodotclone/api-server:latest
 
       - name: Deploy to ECS
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition moodotclone-api-server --no-cli-pager)
+          NEW_TASK_DEF=$(echo $TASK_DEF | python3 -c "
+          import json, sys
+          td = json.load(sys.stdin)['taskDefinition']
+          for c in td['containerDefinitions']:
+              if c['name'] == 'api-server':
+                  c['image'] = '$ECR_REGISTRY/moodotclone/api-server:${{ github.sha }}'
+          keys = ['family','taskRoleArn','executionRoleArn','networkMode','containerDefinitions','volumes','placementConstraints','requiresCompatibilities','cpu','memory','ephemeralStorage']
+          print(json.dumps({k: td[k] for k in keys if k in td}))
+          ")
+          aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF" --no-cli-pager
           aws ecs update-service \
             --cluster moodotclone \
             --service moodotclone-api-server \
+            --task-definition moodotclone-api-server \
             --force-new-deployment \
             --no-cli-pager
