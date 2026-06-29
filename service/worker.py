@@ -72,7 +72,7 @@ async def process_single_message(sqs, queue_url: str, message: dict, pipeline: P
     receipt_handle = message['ReceiptHandle']
     try:
         payload = json.loads(message['Body'])
-        memory_id = payload['memory_id']
+        memory_id = int(payload['memory_id'])
         enqueued_at = payload.get('enqueued_at')
 
         current_status = await get_memory_status(pool, memory_id)

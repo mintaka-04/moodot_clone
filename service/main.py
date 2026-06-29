@@ -71,7 +71,7 @@ async def process_single_message(sqs, event_queue_url: str, ai_queue_url: str, m
     receipt_handle = message['ReceiptHandle']
     try:
         payload = json.loads(message['Body'])
-        memory_id = payload['memory_id']
+        memory_id = int(payload['memory_id'])
 
         async with pool.acquire() as conn:
             memory = await conn.fetchrow(

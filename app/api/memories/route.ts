@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         await sqsClient.send(
           new SendMessageCommand({
             QueueUrl: process.env.SQS_EVENT_QUEUE_URL,
-            MessageBody: JSON.stringify({ memory_id: memoryId }),
+            MessageBody: JSON.stringify({ memory_id: Number(memoryId) }),
           }),
         )
         logger.info(`[memories/list] SQS publish 성공 (memory_id=${memoryId})`)
