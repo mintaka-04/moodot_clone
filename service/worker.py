@@ -4,7 +4,6 @@ import json
 import logging
 import boto3
 import asyncpg
-import aiohttp
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
@@ -45,20 +44,6 @@ async def get_memory_status(pool, memory_id: int) -> str | None:
     return row['status'] if row else None
 
 
-async def notify_browser(user_id: str, intervention_id: int | None) -> None:
-    api_url = os.getenv("API_SERVER_INTERNAL_URL")
-    if not api_url:
-        return
-    try:
-        async with aiohttp.ClientSession() as session:
-            await session.post(
-                f"{api_url}/api/events/notify",
-                json={"user_id": user_id, "intervention_id": intervention_id},
-                timeout=aiohttp.ClientTimeout(total=3),
-            )
-    except Exception as e:
-        logger.warning(f"⚠️ SSE notify 실패 (무시): {e}")
-
 
 async def update_status(pool, memory_id: int, status: str) -> None:
     async with pool.acquire() as conn:
@@ -96,10 +81,6 @@ async def process_single_message(sqs, queue_url: str, message: dict, pipeline: P
         )
 
         await update_status(pool, memory_id, 'done' if result is not False else 'failed')
-        await notify_browser(
-            user_id=payload['user_id'],
-            intervention_id=result.get('intervention_id') if isinstance(result, dict) else None,
-        )
 
         if enqueued_at:
             elapsed = (

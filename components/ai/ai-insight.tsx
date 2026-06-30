@@ -144,42 +144,6 @@ export function AIInsight() {
       })
   }, [])
 
-  // thinking 상태일 때만 SSE 연결
-  useEffect(() => {
-    if (aiState !== "thinking") return
-
-    const es = new EventSource("/api/events")
-
-    es.onmessage = (e) => {
-      try {
-        const { intervention_id } = JSON.parse(e.data)
-        if (intervention_id) {
-          getLatestPendingIntervention().then((data) => {
-            if (data) {
-              setIntervention(data)
-              setAiState("has_message")
-            } else {
-              setAiState("idle")
-            }
-            localStorage.removeItem("ai_processing")
-          })
-        } else {
-          // AI가 intervention 생성 안 함
-          setAiState("idle")
-          localStorage.removeItem("ai_processing")
-        }
-      } catch {}
-      es.close()
-    }
-
-    es.onerror = () => {
-      es.close()
-    }
-
-    return () => {
-      es.close()
-    }
-  }, [aiState])
 
   const bg = (isLoading || latestEmotionId == null || !EMOTION_BG[latestEmotionId]) ? DEFAULT_BG : EMOTION_BG[latestEmotionId]
 

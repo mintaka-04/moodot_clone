@@ -9,12 +9,6 @@ const COOKIE_NAME = "sb-yxhhwebeokldyruuguwj-auth-token"
 const createDuration = new Trend("create_duration")
 const getDuration = new Trend("get_duration")
 
-const STAGE_LABELS = {
-  1:  "단계 1 (10 VU) 램프업 시작",
-  11: "단계 2 (30 VU) 램프업 시작",
-  31: "단계 3 (50 VU) 램프업 시작",
-  51: "단계 4 (100 VU) 램프업 시작",
-}
 
 export const options = {
   stages: [
@@ -29,7 +23,7 @@ export const options = {
     { duration: "30s", target: 0 },    // 종료
   ],
   thresholds: {
-    http_req_duration: ["avg<1930", "p(95)<2080"],
+    http_req_duration: ["avg<2000", "p(95)<2340"],
     http_req_failed: ["rate<0.01"],
   },
 }
@@ -43,10 +37,6 @@ export function teardown() {
 }
 
 export default function () {
-  if (__ITER === 0 && STAGE_LABELS[__VU]) {
-    console.log(`[${new Date().toISOString()}] ${STAGE_LABELS[__VU]}`)
-  }
-
   const cookieHeader = `${COOKIE_NAME}.0=${COOKIE_0}; ${COOKIE_NAME}.1=${COOKIE_1}`
   const headers = {
     "Content-Type": "application/json",

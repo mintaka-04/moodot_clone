@@ -1,0 +1,25 @@
+Id,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10
+StatusCode,Complete,Complete,Complete,Complete,Complete,Complete,Complete,Complete,Complete,Complete
+Messages,,,,,,,,,,
+Full label,ap-northeast-2:AWS/SQS QueueName:moodot-clone-event-queue NumberOfMessagesSent Sum 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-event-queue NumberOfMessagesDeleted Sum 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-event-queue ApproximateNumberOfMessagesNotVisible Maximum 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-event-queue ApproximateNumberOfMessagesVisible Average 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-event-queue ApproximateAgeOfOldestMessage Maximum 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-worker-queue ApproximateNumberOfMessagesVisible Average 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-worker-queue NumberOfMessagesSent Sum 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-worker-queue ApproximateAgeOfOldestMessage Maximum 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-worker-queue NumberOfMessagesDeleted Sum 60,ap-northeast-2:AWS/SQS QueueName:moodot-clone-worker-queue ApproximateNumberOfMessagesNotVisible Maximum 60
+Label,moodot-clone-event-queue NumberOfMessagesSent,moodot-clone-event-queue NumberOfMessagesDeleted,moodot-clone-event-queue ApproximateNumberOfMessagesNotVisible,moodot-clone-event-queue ApproximateNumberOfMessagesVisible,moodot-clone-event-queue ApproximateAgeOfOldestMessage,moodot-clone-worker-queue ApproximateNumberOfMessagesVisible,moodot-clone-worker-queue NumberOfMessagesSent,moodot-clone-worker-queue ApproximateAgeOfOldestMessage,moodot-clone-worker-queue NumberOfMessagesDeleted,moodot-clone-worker-queue ApproximateNumberOfMessagesNotVisible
+2026/06/14 18:02:00,33,29,0,0,0,0,29,0,15,0
+2026/06/14 18:03:00,191,179,2,10,19,42,179,26,42,0
+2026/06/14 18:04:00,196,188,8,13,12,241,188,86,40,1
+2026/06/14 18:05:00,156,151,2,31,24,365,151,144,31,1
+2026/06/14 18:06:00,429,217,10,90,25,535,217,189,34,1
+2026/06/14 18:07:00,525,224,11,493,51,721,224,235,29,1
+2026/06/14 18:08:00,524,228,9,731,117,912,226,284,27,1
+2026/06/14 18:09:00,579,220,9,1022,171,1125,220,345,29,1
+2026/06/14 18:10:00,699,233,8,1490,217,1204,233,370,14,1
+2026/06/14 18:11:00,522,194,35,1821,220,1522,194,458,7,1
+2026/06/14 18:12:00,408,197,38,2030,248,1667,197,499,7,1
+2026/06/14 18:13:00,363,89,54,2315,312,1856,89,575,4,1
+2026/06/14 18:14:00,381,115,10,2649,372,1888,115,605,7,0
+2026/06/14 18:15:00,517,116,59,2963,429,2027,116,696,15,4
+2026/06/14 18:16:00,347,92,75,3275,479,2121,93,751,9,4
+2026/06/14 18:17:00,61,175,44,3306,537,2121,173,751,23,4
+2026/06/14 18:18:00,60,273,44,3306,537,2460,273,851,42,7
+2026/06/14 18:19:00,0,272,55,2876,589,2664,272,898,51,7
+2026/06/14 18:20:00,60,258,61,2666,624,2879,258,941,55,10
+2026/06/14 18:21:00,40,236,43,2526,658,3047,236,982,62,10
