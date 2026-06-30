@@ -5,7 +5,7 @@ OpenAI API 프로바이더
 import os
 import time
 import logging
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 
 from .base_llm import BaseLLMProvider
 
@@ -42,29 +42,39 @@ class OpenAIProvider(BaseLLMProvider):
         return self._model
 
     def generate(self, prompt: str) -> tuple[str, dict]:
-        start = time.time()
+        max_retries = 4
+        for attempt in range(max_retries):
+            try:
+                start = time.time()
 
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=self._temperature,
-            max_tokens=self._max_tokens,
-        )
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=self._temperature,
+                    max_tokens=self._max_tokens,
+                )
 
-        elapsed = time.time() - start
-        usage = response.usage
+                elapsed = time.time() - start
+                usage = response.usage
 
-        metadata = {
-            "elapsed_time": elapsed,
-            "prompt_tokens": usage.prompt_tokens,
-            "completion_tokens": usage.completion_tokens,
-            "total_tokens": usage.total_tokens,
-            "total_cost": self._calc_cost(usage.prompt_tokens, usage.completion_tokens),
-        }
+                metadata = {
+                    "elapsed_time": elapsed,
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "total_tokens": usage.total_tokens,
+                    "total_cost": self._calc_cost(usage.prompt_tokens, usage.completion_tokens),
+                }
 
-        text = response.choices[0].message.content.strip()
-        logger.info(f"💬 OpenAI 호출 완료: {elapsed:.2f}초, {usage.total_tokens} 토큰")
-        return text, metadata
+                text = response.choices[0].message.content.strip()
+                logger.info(f"💬 OpenAI 호출 완료: {elapsed:.2f}초, {usage.total_tokens} 토큰")
+                return text, metadata
+
+            except RateLimitError as e:
+                if attempt == max_retries - 1:
+                    raise
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning(f"⚠️ Rate limit 429, {wait}초 후 재시도 ({attempt + 1}/{max_retries - 1}): {e}")
+                time.sleep(wait)
 
     def _calc_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
         """gpt-4o-mini 기준 비용 계산 (USD)"""

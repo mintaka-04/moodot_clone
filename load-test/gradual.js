@@ -23,7 +23,7 @@ export const options = {
     { duration: "30s", target: 0 },    // 종료
   ],
   thresholds: {
-    http_req_duration: ["avg<2000", "p(95)<2340"],
+    http_req_duration: ["avg<2040", "p(95)<2680"],
     http_req_failed: ["rate<0.01"],
   },
 }

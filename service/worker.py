@@ -53,7 +53,7 @@ async def update_status(pool, memory_id: int, status: str) -> None:
         )
 
 
-async def process_single_message(sqs, queue_url: str, message: dict, pipeline: Pipeline, pool) -> None:
+async def process_single_message(sqs, queue_url: str, message: dict, pipeline: Pipeline, pool, semaphore: asyncio.Semaphore) -> None:
     receipt_handle = message['ReceiptHandle']
     try:
         payload = json.loads(message['Body'])
@@ -73,12 +73,13 @@ async def process_single_message(sqs, queue_url: str, message: dict, pipeline: P
 
         await update_status(pool, memory_id, 'processing')
 
-        result = await pipeline.process_emotion(
-            memory_id=memory_id,
-            user_id=payload['user_id'],
-            reason=payload['reason'],
-            context=payload.get('context', {}),
-        )
+        async with semaphore:
+            result = await pipeline.process_emotion(
+                memory_id=memory_id,
+                user_id=payload['user_id'],
+                reason=payload['reason'],
+                context=payload.get('context', {}),
+            )
 
         await update_status(pool, memory_id, 'done' if result is not False else 'failed')
 
@@ -99,7 +100,7 @@ async def process_single_message(sqs, queue_url: str, message: dict, pipeline: P
         logger.error(f"❌ 메시지 처리 실패 (재처리 대기): {e}", exc_info=True)
 
 
-async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline, pool) -> None:
+async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline, pool, semaphore: asyncio.Semaphore) -> None:
     logger.info("🔄 SQS 폴링 시작...")
     while True:
         try:
@@ -114,7 +115,7 @@ async def poll_and_process(sqs, queue_url: str, pipeline: Pipeline, pool) -> Non
                 continue
 
             await asyncio.gather(*[
-                process_single_message(sqs, queue_url, msg, pipeline, pool)
+                process_single_message(sqs, queue_url, msg, pipeline, pool, semaphore)
                 for msg in messages
             ])
 
@@ -148,7 +149,11 @@ async def main() -> None:
     pipeline = Pipeline(pool, intervention_repo, message_generator)
     sqs = create_sqs_client()
 
-    await poll_and_process(sqs, queue_url, pipeline, pool)
+    concurrency = int(os.getenv("WORKER_CONCURRENCY", "3"))
+    semaphore = asyncio.Semaphore(concurrency)
+    logger.info(f"🔒 LLM 동시 호출 제한: {concurrency}")
+
+    await poll_and_process(sqs, queue_url, pipeline, pool, semaphore)
 
 
 if __name__ == "__main__":
