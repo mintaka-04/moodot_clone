@@ -76,10 +76,12 @@ export async function POST(request: Request) {
             MessageBody: JSON.stringify({ memory_id: Number(memoryId) }),
           }),
         )
-        logger.info(`[memories/list] SQS publish 성공 (memory_id=${memoryId})`)
+        logger.error(`[SQS] 전송 성공 (memory_id=${memoryId})`)
       } catch (err) {
-        logger.error("[memories/list] SQS publish error:", err)
+        logger.error("[SQS] 전송 실패:", err)
       }
+    } else {
+      logger.error("[SQS] SQS_EVENT_QUEUE_URL 환경변수 없음 — 전송 스킵")
     }
 
     return NextResponse.json({ id: memoryId })
