@@ -5,6 +5,7 @@ load-test/auth.js
 
 # dependencies
 /node_modules
+**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
