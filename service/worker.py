@@ -25,7 +25,7 @@ async def create_db_pool():
     return await asyncpg.create_pool(
         dsn=os.getenv("DATABASE_URL"),
         min_size=1,
-        max_size=3,
+        max_size=2,
         ssl='require',
         statement_cache_size=0,
     )
