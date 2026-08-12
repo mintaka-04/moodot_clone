@@ -9,6 +9,7 @@ export function getPool(): Pool {
       ssl: { rejectUnauthorized: false },
       max: 10,
       idleTimeoutMillis: 30000,
+      application_name: "api-server",
     })
   }
   return pool

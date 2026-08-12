@@ -27,6 +27,7 @@ async def create_db_pool():
         max_size=4,
         ssl='require',
         statement_cache_size=0,
+        server_settings={'application_name': 'rule-worker'},
     )
 
 
